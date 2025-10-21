@@ -405,7 +405,6 @@ service / on new http:Listener(8090) {
         resp.setHeader("X-Processing-Time", generateTimestamp());
         resp.setHeader("X-Token-Version", "v2.1");
         resp.setHeader("X-Auth-Provider", "Ballerina-Action-Service");
-        resp.setHeader("X-User-Context", userID);
         resp.setHeader("X-Operations-Count", operations.length().toString());
         
         resp.statusCode = 200;
