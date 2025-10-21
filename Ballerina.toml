@@ -1,0 +1,8 @@
+[build-options]
+  observabilityIncluded = true
+
+[package]
+  distribution = "2201.4.1"
+  name = "action_execution_service"
+  org = "niluka20250605"
+  version = "0.1.0"
