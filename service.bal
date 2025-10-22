@@ -2,6 +2,7 @@ import ballerina/http;
 import ballerina/jwt;
 import ballerina/log;
 import ballerina/time;
+import ballerina/regex;
 
 // Choreo-ready configuration with JWKS support
 configurable boolean enabledDebugLog = false;
@@ -23,11 +24,12 @@ class JWTValidator {
         
         if jwksEndpoint is string {
             do {
-                self.jwksClient = check new(jwksEndpoint, timeout = 30);
+                self.jwksClient = check new(jwksEndpoint);
                 log:printInfo(string `✅ JWKS client initialized: ${jwksEndpoint}`);
             } on fail error err {
                 log:printError(string `❌ JWKS client initialization failed: ${err.message()}`);
                 self.jwksClient = ();
+            }
             }
         } else {
             self.jwksClient = ();
@@ -85,11 +87,7 @@ class JWTValidator {
         if self.jwksUrl is string {
             config.signatureConfig = {
                 jwksConfig: {
-                    url: <string>self.jwksUrl,
-                    clientConfig: {
-                        timeout: 30,
-                        httpVersion: "1.1"
-                    }
+                    url: <string>self.jwksUrl
                 }
             };
         }
@@ -99,7 +97,7 @@ class JWTValidator {
     
     // Validate JWT format
     private function isValidJWTFormat(string jwtToken) returns boolean {
-        string[] parts = jwtToken.split("\\.");
+        string[] parts = regex:split(jwtToken, "\\.");
         return parts.length() == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "";
     }
     
@@ -125,7 +123,7 @@ class JWTValidator {
         // Validate expiration
         anydata exp = payload.get("exp");
         if exp is int {
-            decimal currentTime = <decimal>time:utcNow()[0];
+            int currentTime = <int>time:utcNow()[0];
             if exp < currentTime {
                 return error("JWT token has expired");
             }
@@ -134,7 +132,7 @@ class JWTValidator {
         // Validate not before
         anydata nbf = payload.get("nbf");
         if nbf is int {
-            decimal currentTime = <decimal>time:utcNow()[0];
+            int currentTime = <int>time:utcNow()[0];
             if nbf > currentTime {
                 return error("JWT token is not yet valid");
             }
@@ -158,25 +156,14 @@ class JWTValidator {
             return error("JWKS client not configured");
         }
         
-        http:Client client = <http:Client>self.jwksClient;
-        json response = check client->get("");
+        http:Client jwksClient = <http:Client>self.jwksClient;
+        json response = check jwksClient->get("");
         return response;
     }
 }
 
 // Initialize JWT validator
 final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
-
-// Response types for better structure
-type SuccessResponse record {|
-    *http:Ok;
-    json body;
-|};
-
-type ErrorResponse record {|
-    *http:BadRequest;
-    json body;
-|};
 
 // Choreo-ready HTTP service
 service / on new http:Listener(9092) {
@@ -205,8 +192,11 @@ service / on new http:Listener(9092) {
         
         json|error result = jwtValidator.testJWKSConnectivity();
         if result is json {
-            json[]? keys = <json[]?>result.keys;
-            int keysCount = keys is json[] ? keys.length() : 0;
+            anydata keysData = result["keys"];
+            int keysCount = 0;
+            if keysData is json[] {
+                keysCount = keysData.length();
+            }
             return {
                 status: "JWKS_ACCESSIBLE",
                 jwksUrl: jwksUrl,
@@ -224,7 +214,7 @@ service / on new http:Listener(9092) {
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post .(RequestBody payload) returns SuccessResponse|ErrorResponse {
+    resource function post .(RequestBody payload) returns http:Ok|http:BadRequest {
         do {
             if enabledDebugLog {
                 log:printInfo(string `📥 Received request: ${payload.toJsonString()}`);
@@ -234,7 +224,7 @@ service / on new http:Listener(9092) {
             if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
                 string msg = "Invalid action type";
                 log:printError(string `${msg}: ${payload.actionType.toString()}`);
-                return {
+                return <http:BadRequest>{
                     body: {
                         actionStatus: "ERROR",
                         errorMessage: msg,
@@ -248,7 +238,7 @@ service / on new http:Listener(9092) {
             if requestParams is () {
                 string msg = "Missing additional parameters";
                 log:printError(msg);
-                return {
+                return <http:BadRequest>{
                     body: {
                         actionStatus: "ERROR",
                         errorMessage: msg,
@@ -276,7 +266,7 @@ service / on new http:Listener(9092) {
                 }
                 
                 // Return success response with userId claim
-                return {
+                return <http:Ok>{
                     body: {
                         actionStatus: "SUCCESS",
                         operations: [
@@ -296,7 +286,7 @@ service / on new http:Listener(9092) {
                 string errorMsg = validationResult.message();
                 log:printError(string `❌ JWT validation failed: ${errorMsg}`);
                 
-                return {
+                return <http:BadRequest>{
                     body: {
                         actionStatus: "ERROR",
                         errorMessage: "JWT validation failed",
@@ -309,7 +299,7 @@ service / on new http:Listener(9092) {
             string msg = "Internal server error during request processing";
             log:printError(string `💥 ${msg}: ${err.message()}`);
             
-            return {
+            return <http:BadRequest>{
                 body: {
                     actionStatus: "ERROR",
                     errorMessage: msg,
