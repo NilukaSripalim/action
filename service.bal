@@ -8,7 +8,7 @@ import ballerina/regex;
 configurable boolean enabledDebugLog = false;
 configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
-configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks"; // JWKS endpoint URL for JWT signature validation
+configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
 // JWT Validator with JWKS support - All in one class
 class JWTValidator {
@@ -24,12 +24,11 @@ class JWTValidator {
         
         if jwksEndpoint is string {
             do {
-                self.jwksClient = check new(jwksEndpoint);
+                self.jwksClient = check new(jwksEndpoint, {timeout: 30});
                 log:printInfo(string `✅ JWKS client initialized: ${jwksEndpoint}`);
             } on fail error err {
                 log:printError(string `❌ JWKS client initialization failed: ${err.message()}`);
                 self.jwksClient = ();
-            }
             }
         } else {
             self.jwksClient = ();
@@ -87,7 +86,10 @@ class JWTValidator {
         if self.jwksUrl is string {
             config.signatureConfig = {
                 jwksConfig: {
-                    url: <string>self.jwksUrl
+                    url: <string>self.jwksUrl,
+                    clientConfig: {
+                        httpVersion: http:HTTP_1_1
+                    }
                 }
             };
         }
@@ -123,8 +125,8 @@ class JWTValidator {
         // Validate expiration
         anydata exp = payload.get("exp");
         if exp is int {
-            int currentTime = <int>time:utcNow()[0];
-            if exp < currentTime {
+            decimal currentTime = <decimal>time:utcNow()[0];
+            if <decimal>exp < currentTime {
                 return error("JWT token has expired");
             }
         }
@@ -132,8 +134,8 @@ class JWTValidator {
         // Validate not before
         anydata nbf = payload.get("nbf");
         if nbf is int {
-            int currentTime = <int>time:utcNow()[0];
-            if nbf > currentTime {
+            decimal currentTime = <decimal>time:utcNow()[0];
+            if <decimal>nbf > currentTime {
                 return error("JWT token is not yet valid");
             }
         }
@@ -172,7 +174,7 @@ service / on new http:Listener(9092) {
     resource function get health() returns json {
         return {
             status: "UP",
-            service: "spa-auth-ext-api",
+            service: "asgardeo-e2e-special-cases",
             version: "1.0.0",
             timestamp: time:utcNow()[0],
             jwksConfigured: jwksUrl is string,
@@ -192,7 +194,7 @@ service / on new http:Listener(9092) {
         
         json|error result = jwtValidator.testJWKSConnectivity();
         if result is json {
-            anydata keysData = result["keys"];
+            anydata keysData = result.keys;
             int keysCount = 0;
             if keysData is json[] {
                 keysCount = keysData.length();
