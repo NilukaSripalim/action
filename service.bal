@@ -4,13 +4,11 @@ import ballerina/log;
 import ballerina/time;
 import ballerina/regex;
 
-// Configuration
 configurable boolean enabledDebugLog = false;
 configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
 configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
-// JWT Validator class
 class JWTValidator {
     private string expectedIssuer;
     private string expectedAudience;
@@ -159,7 +157,8 @@ function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
     return error("JWT parameter not found in request");
 }
 
-service / on new http:Listener(9092) {
+service /
+on new http:Listener(9092) {
 
     resource function get health() returns json {
         return {
@@ -181,27 +180,26 @@ service / on new http:Listener(9092) {
             };
         }
         
-        json|error connectivityTest = jwtValidator.testJWKSConnectivity();
-        if connectivityTest is json {
-            int keysCount = 0;
-            if connectivityTest is map<json> {
-                json keysValue = connectivityTest["keys"];
-                if keysValue is json[] {
-                    keysCount = keysValue.length();
-                }
+        json|error jwksResult = jwtValidator.testJWKSConnectivity();
+        if jwksResult is json {
+            int keyCount = 0;
+            map<json> jwksMap = <map<json>>jwksResult;
+            json keysJson = jwksMap["keys"];
+            if keysJson is json[] {
+                keyCount = keysJson.length();
             }
             
             return {
                 status: "JWKS_ACCESSIBLE",
                 jwksUrl: jwksUrl,
-                keysCount: keysCount,
+                keysCount: keyCount,
                 message: "JWKS endpoint is accessible"
             };
         } else {
             return {
                 status: "JWKS_ERROR",
                 jwksUrl: jwksUrl,
-                error: connectivityTest.message(),
+                error: jwksResult.message(),
                 message: "Failed to connect to JWKS endpoint"
             };
         }
