@@ -1,480 +1,339 @@
 import ballerina/http;
+import ballerina/jwt;
 import ballerina/log;
+import ballerina/time;
 
-enum ActionSuccessStatus {
-    SUCCESS
+// Choreo-ready configuration with JWKS support
+configurable boolean enabledDebugLog = false;
+configurable string expectedIssuer = "wso2";
+configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
+configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks"; // JWKS endpoint URL for JWT signature validation
+
+// JWT Validator with JWKS support - All in one class
+class JWTValidator {
+    private string expectedIssuer;
+    private string expectedAudience;
+    private string? jwksUrl;
+    private http:Client? jwksClient;
+    
+    function init(string issuer = "wso2", string? audience = (), string? jwksEndpoint = ()) {
+        self.expectedIssuer = issuer;
+        self.expectedAudience = audience ?: "";
+        self.jwksUrl = jwksEndpoint;
+        
+        if jwksEndpoint is string {
+            do {
+                self.jwksClient = check new(jwksEndpoint, timeout = 30);
+                log:printInfo(string `✅ JWKS client initialized: ${jwksEndpoint}`);
+            } on fail error err {
+                log:printError(string `❌ JWKS client initialization failed: ${err.message()}`);
+                self.jwksClient = ();
+            }
+        } else {
+            self.jwksClient = ();
+        }
+    }
+    
+    // Main JWT validation function
+    function validateJWT(string jwtToken) returns jwt:Payload|error {
+        do {
+            // Basic format validation
+            if !self.isValidJWTFormat(jwtToken) {
+                return error("Invalid JWT format - must have 3 parts separated by dots");
+            }
+            
+            // Decode JWT to inspect header and payload
+            [jwt:Header, jwt:Payload] [header, payload] = check jwt:decode(jwtToken);
+            
+            // Validate algorithm
+            string? algorithm = header.alg;
+            if algorithm is () || !self.isSupportedAlgorithm(algorithm) {
+                return error(string `Unsupported algorithm: ${algorithm ?: "none"}`);
+            }
+            
+            // Create validator config
+            jwt:ValidatorConfig validatorConfig = check self.createValidatorConfig();
+            
+            // Validate JWT
+            jwt:Payload validatedPayload = check jwt:validate(jwtToken, validatorConfig);
+            
+            // Custom claim validations
+            check self.validateCustomClaims(validatedPayload);
+            
+            log:printInfo("✅ JWT validation successful");
+            return validatedPayload;
+            
+        } on fail error err {
+            log:printError(string `❌ JWT validation failed: ${err.message()}`);
+            return err;
+        }
+    }
+    
+    // Create validator configuration
+    private function createValidatorConfig() returns jwt:ValidatorConfig|error {
+        jwt:ValidatorConfig config = {
+            issuer: self.expectedIssuer,
+            clockSkew: 60 // 60 seconds tolerance
+        };
+        
+        // Add audience if specified
+        if self.expectedAudience != "" {
+            config.audience = [self.expectedAudience];
+        }
+        
+        // Add JWKS configuration if available
+        if self.jwksUrl is string {
+            config.signatureConfig = {
+                jwksConfig: {
+                    url: <string>self.jwksUrl,
+                    clientConfig: {
+                        timeout: 30,
+                        httpVersion: "1.1"
+                    }
+                }
+            };
+        }
+        
+        return config;
+    }
+    
+    // Validate JWT format
+    private function isValidJWTFormat(string jwtToken) returns boolean {
+        string[] parts = jwtToken.split("\\.");
+        return parts.length() == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "";
+    }
+    
+    // Check supported algorithms
+    private function isSupportedAlgorithm(string algorithm) returns boolean {
+        return algorithm == "RS256" || algorithm == "HS256" || algorithm == "ES256" || algorithm == "RS512";
+    }
+    
+    // Custom claim validations
+    private function validateCustomClaims(jwt:Payload payload) returns error? {
+        // Validate required userId claim
+        anydata userId = payload.get("userId");
+        if userId is () {
+            return error("Missing required 'userId' claim in JWT");
+        }
+        
+        // Validate issuer
+        anydata issuer = payload.get("iss");
+        if issuer is string && issuer != self.expectedIssuer {
+            return error(string `Invalid issuer. Expected: ${self.expectedIssuer}, Found: ${issuer}`);
+        }
+        
+        // Validate expiration
+        anydata exp = payload.get("exp");
+        if exp is int {
+            decimal currentTime = <decimal>time:utcNow()[0];
+            if exp < currentTime {
+                return error("JWT token has expired");
+            }
+        }
+        
+        // Validate not before
+        anydata nbf = payload.get("nbf");
+        if nbf is int {
+            decimal currentTime = <decimal>time:utcNow()[0];
+            if nbf > currentTime {
+                return error("JWT token is not yet valid");
+            }
+        }
+        
+        return;
+    }
+    
+    // Extract userId from validated payload
+    function extractUserId(jwt:Payload payload) returns string|error {
+        anydata userId = payload.get("userId");
+        if userId is string {
+            return userId;
+        }
+        return error("Unable to extract userId from JWT payload");
+    }
+    
+    // Test JWKS connectivity
+    function testJWKSConnectivity() returns json|error {
+        if self.jwksClient is () {
+            return error("JWKS client not configured");
+        }
+        
+        http:Client client = <http:Client>self.jwksClient;
+        json response = check client->get("");
+        return response;
+    }
 }
 
-enum ActionFailedStatus {
-    ERROR
-}
+// Initialize JWT validator
+final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
 
-enum OperationType {
-    ADD = "add",
-    REMOVE = "remove",
-    REPLACE = "replace"
-}
+// Response types for better structure
+type SuccessResponse record {|
+    *http:Ok;
+    json body;
+|};
 
-type OperationValue record {
-    string name;
-    string | string[] | boolean value;
-};
+type ErrorResponse record {|
+    *http:BadRequest;
+    json body;
+|};
 
-type Operation record {
-    string op;
-    string path;
-    string | OperationValue value?;
-};
+// Choreo-ready HTTP service
+service / on new http:Listener(9092) {
 
-type ActionSuccessResponse record {
-    ActionSuccessStatus actionStatus;
-    Operation[] operations;
-};
-
-type ActionFailedResponse record {
-    ActionFailedStatus actionStatus;
-    string 'error;
-    string error_description;
-};
-
-service / on new http:Listener(8090) {
-    resource function post preIssueAccessTokenUpdateScopes(http:Request req) returns http:Response|error? {
-
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Update Scopes of the access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        json grantType = check requestPayload.toJson().event.request.grantType;
-        if (grantType == "refresh_token") {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/scopes/0"
-                    }
-                ]
-            };
-        } else {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: ADD,
-                        path: "/accessToken/scopes/-",
-                        value: "test_api_perm_3"
-                    },
-                    {
-                        op: ADD,
-                        path: "/accessToken/scopes/0",
-                        value: "test_api_perm_2"
-                    },
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/scopes/0"
-                    },
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/scopes/1",
-                        value: "test_api_perm_1"
-                    }
-                ]
-            };
-        }
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;
+    // Health check endpoint
+    resource function get health() returns json {
+        return {
+            status: "UP",
+            service: "spa-auth-ext-api",
+            version: "1.0.0",
+            timestamp: time:utcNow()[0],
+            jwksConfigured: jwksUrl is string,
+            expectedIssuer: expectedIssuer,
+            expectedAudience: expectedAudience
+        };
     }
 
-    resource function post preIssueAccessTokenUpdateAudience(http:Request req) returns http:Response|error? {
-        
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Update Audience of the access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        json grantType = check requestPayload.toJson().event.request.grantType;
-        if (grantType == "refresh_token") { 
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/claims/aud/0"
-                    }
-                ]
-            };
-        } else {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: ADD,
-                        path: "/accessToken/claims/aud/-",
-                        value: "https://myextension.com"
-                    },
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/claims/aud/1"
-                    },
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/claims/aud/0",
-                        value: "https://localhost:8090"
-                    }
-                ]
+    // Test JWKS connectivity
+    resource function get test\-jwks() returns json {
+        if jwksUrl is () {
+            return {
+                status: "JWKS_NOT_CONFIGURED",
+                message: "JWKS URL not provided in configuration"
             };
         }
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;
-    }
-
-    resource function post preIssueAccessTokenUpdateOidcClaims(http:Request req) returns http:Response|error? {
-
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Update OIDC Claims of the access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        json grantType = check requestPayload.toJson().event.request.grantType;
-        if (grantType == "refresh_token") {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/claims/groups/0"
-                    }
-                ]
+        
+        json|error result = jwtValidator.testJWKSConnectivity();
+        if result is json {
+            json[]? keys = <json[]?>result.keys;
+            int keysCount = keys is json[] ? keys.length() : 0;
+            return {
+                status: "JWKS_ACCESSIBLE",
+                jwksUrl: jwksUrl,
+                keysCount: keysCount,
+                message: "JWKS endpoint is accessible"
             };
         } else {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REMOVE,
-                        path: "/accessToken/claims/groups/0"
-                    },
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/claims/groups/1",
-                        value: "verifiedGroup1"
-                    },
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/claims/username",
-                        value: "US/JohnDoe"
-                    }
-                ]
+            return {
+                status: "JWKS_ERROR",
+                jwksUrl: jwksUrl,
+                error: result.message(),
+                message: "Failed to connect to JWKS endpoint"
             };
         }
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;
     }
 
-    resource function post preIssueAccessTokenUpdateTokenExpiryTime(http:Request req) returns http:Response|error? {
-        
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Update Expiry Time of the access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        json grantType = check requestPayload.toJson().event.request.grantType;
-        if (grantType == "refresh_token") {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/claims/expires_in",
-                        value: "3000"
+    // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
+    resource function post .(RequestBody payload) returns SuccessResponse|ErrorResponse {
+        do {
+            if enabledDebugLog {
+                log:printInfo(string `📥 Received request: ${payload.toJsonString()}`);
+            }
+            
+            // Validate action type
+            if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
+                string msg = "Invalid action type";
+                log:printError(string `${msg}: ${payload.actionType.toString()}`);
+                return {
+                    body: {
+                        actionStatus: "ERROR",
+                        errorMessage: msg,
+                        errorDescription: "Only PRE_ISSUE_ACCESS_TOKEN action type is supported"
                     }
-                ]
-            };
-        } else {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: REPLACE,
-                        path: "/accessToken/claims/expires_in",
-                        value: "4000"
+                };
+            }
+            
+            // Extract request parameters
+            RequestParams[]? requestParams = payload.event?.request?.additionalParams;
+            if requestParams is () {
+                string msg = "Missing additional parameters";
+                log:printError(msg);
+                return {
+                    body: {
+                        actionStatus: "ERROR",
+                        errorMessage: msg,
+                        errorDescription: "JWT parameter is required in additionalParams"
                     }
-                ]
-            };
-        }
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;   
-    }
-
-    resource function post preIssueAccessTokenAddCustomClaims(http:Request req) returns http:Response|error? {
-        
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Add Custom Claims to the access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        json grantType = check requestPayload.toJson().event.request.grantType;
-        
-        // Extract userID from the request payload
-        string userID = check getUserIdFromRequest(requestPayload);
-        log:printInfo("Adding userID to token: " + userID);
-        
-        if (grantType == "refresh_token") {
-            string? prevGrantType = check getAccessTokenClaim(requestPayload, "grantType");
-            if prevGrantType != null {
-                respBody = {
-                    "actionStatus": SUCCESS,
-                    "operations": [
-                        {
-                            op: REPLACE,
-                            path: "/accessToken/claims/grantType",
-                            value: grantType.toString()
-                        },
-                        {
-                            op: ADD,
-                            path: "/accessToken/claims/-",
-                            value: {
-                                name: "previousGrantType",
-                                value: prevGrantType
+                };
+            }
+            
+            // Extract JWT token
+            string jwtToken = check self.extractJWT(requestParams);
+            
+            if enabledDebugLog {
+                log:printInfo("🔍 Extracted JWT token for validation");
+            }
+            
+            // Validate JWT
+            jwt:Payload|error validationResult = jwtValidator.validateJWT(jwtToken);
+            
+            if validationResult is jwt:Payload {
+                // Extract userId
+                string userId = check jwtValidator.extractUserId(validationResult);
+                
+                if enabledDebugLog {
+                    log:printInfo(string `✅ JWT validation successful for userId: ${userId}`);
+                }
+                
+                // Return success response with userId claim
+                return {
+                    body: {
+                        actionStatus: "SUCCESS",
+                        operations: [
+                            {
+                                op: "add",
+                                path: "/accessToken/claims/-",
+                                value: {
+                                    name: "userId",
+                                    value: userId
+                                }
                             }
-                        },
-                        {
-                            op: ADD,
-                            path: "/accessToken/claims/-",
-                            value: {
-                                name: "userID",
-                                value: userID
-                            }
-                        }
-                    ]
+                        ]
+                    }
                 };
             } else {
-                respBody = {
-                    "actionStatus": SUCCESS,
-                    "operations": [
-                        {
-                            op: ADD,
-                            path: "/accessToken/claims/-",
-                            value: {
-                                name: "grantType",
-                                value: grantType.toString()
-                            }
-                        },
-                        {
-                            op: ADD,
-                            path: "/accessToken/claims/-",
-                            value: {
-                                name: "userID",
-                                value: userID
-                            }
-                        }
-                    ]
+                // Validation failed
+                string errorMsg = validationResult.message();
+                log:printError(string `❌ JWT validation failed: ${errorMsg}`);
+                
+                return {
+                    body: {
+                        actionStatus: "ERROR",
+                        errorMessage: "JWT validation failed",
+                        errorDescription: errorMsg
+                    }
                 };
             }
-        } else {
-            respBody = {
-                "actionStatus": SUCCESS,
-                "operations": [
-                    {
-                        op: ADD,
-                        path: "/accessToken/claims/-",
-                        value: {
-                            name: "grantType",
-                            value: grantType.toString()
-                        }
-                    },
-                    {
-                        op: ADD,
-                        path: "/accessToken/claims/-",
-                        value: {
-                            name: "userID",
-                            value: userID
-                        }
-                    },
-                    {
-                        op: ADD,
-                        path: "/accessToken/claims/-",
-                        value: {
-                            name: "isPermanent",
-                            value: true
-                        }
-                    },
-                    {
-                        op: ADD,
-                        path: "/accessToken/claims/-",
-                        value: {
-                            name: "additionalRoles",
-                            value: [
-                                "accountant",
-                                "manager"
-                            ]
-                        }
-                    }
-                ]
+            
+        } on fail error err {
+            string msg = "Internal server error during request processing";
+            log:printError(string `💥 ${msg}: ${err.message()}`);
+            
+            return {
+                body: {
+                    actionStatus: "ERROR",
+                    errorMessage: msg,
+                    errorDescription: err.message()
+                }
             };
         }
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
+    }
 
-        return resp;   
-    }   
-
-    resource function post preIssueAccessTokenInsertUserID(http:Request req) returns http:Response|error? {
-        
-        ActionSuccessResponse respBody;
-        http:Response resp = new;
-        log:printInfo("Request Received to Insert UserID to the JWT access token");
-        json requestPayload = <json> check req.getJsonPayload();
-        log:printInfo(requestPayload.toString());
-        
-        // Extract user information from the request payload
-        string userID = check getUserIdFromRequest(requestPayload);
-        log:printInfo("Processing UserID: " + userID);
-        
-        // Check if userID already exists in the token
-        string? existingUserID = check getAccessTokenClaim(requestPayload, "userID");
-        string? existingSub = check getAccessTokenClaim(requestPayload, "sub");
-        
-        Operation[] operations = [];
-        
-        // Only add userID if it doesn't already exist
-        if existingUserID == null {
-            operations.push({
-                op: ADD,
-                path: "/accessToken/claims/-",
-                value: {
-                    name: "userID",
-                    value: userID
+    // Utility function to extract JWT from request parameters
+    private function extractJWT(RequestParams[] reqParams) returns string|error {
+        foreach RequestParams param in reqParams {
+            string? name = param.name;
+            string[]? value = param.value;
+            
+            if name == "jwt" && value is string[] && value.length() > 0 {
+                string jwtToken = value[0];
+                if jwtToken.trim() == "" {
+                    return error("JWT parameter is empty");
                 }
-            });
-            log:printInfo("Adding userID to token: " + userID);
-        } else {
-            log:printInfo("UserID already exists in token: " + existingUserID + ", skipping addition");
-        }
-        
-        // Only add sub claim if it doesn't already exist
-        if existingSub == null {
-            operations.push({
-                op: ADD,
-                path: "/accessToken/claims/-",
-                value: {
-                    name: "sub",
-                    value: userID
-                }
-            });
-            log:printInfo("Adding sub claim to token: " + userID);
-        } else {
-            log:printInfo("Sub claim already exists in token: " + existingSub + ", skipping addition");
-        }
-        
-        // Add some custom dummy claims
-        operations.push({
-            op: ADD,
-            path: "/accessToken/claims/-",
-            value: {
-                name: "custom_app_id",
-                value: "APP_12345"
-            }
-        });
-        
-        operations.push({
-            op: ADD,
-            path: "/accessToken/claims/-",
-            value: {
-                name: "tenant_id",
-                value: "tenant_demo_001"
-            }
-        });
-        
-        respBody = {
-            "actionStatus": SUCCESS,
-            "operations": operations
-        };
-        
-        // Add custom headers
-        resp.setHeader("X-Custom-Action", "UserID-Insertion");
-        resp.setHeader("X-Processing-Time", generateTimestamp());
-        resp.setHeader("X-Token-Version", "v2.1");
-        resp.setHeader("X-Auth-Provider", "Ballerina-Action-Service");
-        resp.setHeader("X-Operations-Count", operations.length().toString());
-        
-        resp.statusCode = 200;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;   
-    }
-
-    resource function post preIssueAccessTokenError(http:Request req) returns http:Response|error? {
-        
-        log:printInfo("Request Received to simulate an error");
-        ActionFailedResponse respBody = {
-            actionStatus: ERROR,
-            'error: "access_denied",
-            error_description: "The user is not authorized to access the resource"
-        };
-        http:Response resp = new;
-        resp.statusCode = 400;
-        resp.setJsonPayload(respBody.toJson());
-
-        return resp;
-    }
-}
-
-// Function to get the email value from the claims
-function getAccessTokenClaim(json requestPayload, string claimName) returns string|error? {
-    json? claimsJson = check requestPayload.toJson().event.accessToken.claims;
-
-    if claimsJson is json[] {
-        foreach json claim in claimsJson {
-            if claim.name == claimName {
-                return (check claim.value).toString();
+                return jwtToken;
             }
         }
-    }
-    return null;
-}
-
-// Function to extract userID from the request payload
-function getUserIdFromRequest(json requestPayload) returns string|error {
-    // Try to get userID from different possible locations in the request
-    json|error userIdFromUser = requestPayload.toJson().event.request.user.id;
-    json|error usernameFromUser = requestPayload.toJson().event.request.user.username;
-    json|error subjectFromClaims = requestPayload.toJson().event.request.user.sub;
-    
-    if userIdFromUser is json && userIdFromUser != null {
-        return userIdFromUser.toString();
-    } else if subjectFromClaims is json && subjectFromClaims != null {
-        return subjectFromClaims.toString();
-    } else if usernameFromUser is json && usernameFromUser != null {
-        return usernameFromUser.toString();
-    } else {
-        // Try to extract from existing access token claims as fallback
-        string? existingUserId = check getAccessTokenClaim(requestPayload, "userID");
-        if existingUserId != null {
-            return existingUserId;
-        }
         
-        string? existingSub = check getAccessTokenClaim(requestPayload, "sub");
-        if existingSub != null {
-            return existingSub;
-        }
-        
-        // Generate a default userID if not found anywhere
-        return "default_user_" + generateTimestamp();
+        return error("JWT parameter not found in request");
     }
-}
-
-// Function to generate timestamp for unique identifiers
-function generateTimestamp() returns string {
-    // Using current time representation
-    return "1729531200000"; // Example timestamp
 }

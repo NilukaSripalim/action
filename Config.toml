@@ -1,0 +1,28 @@
+# Choreo Configuration for SPA Authentication Extension API
+# Set these values in Choreo Console → Environment Variables
+
+[spa_auth_ext_api]
+
+# Debug logging (false for production)
+enabledDebugLog = false
+
+# JWT validation settings
+expectedIssuer = "wso2"
+expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma"
+
+# JWKS endpoint for JWT signature validation
+jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks"
+
+# Example values for different scenarios:
+
+# 1. Current Testing Configuration:
+# enabledDebugLog = false
+# expectedIssuer = "wso2"
+# expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma"
+# jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks"
+
+# 2. Custom SPA API:
+# enabledDebugLog = false
+# expectedIssuer = "my-spa-api"
+# expectedAudience = "spa-client"
+# jwksUrl = "https://my-spa-api.com/.well-known/jwks.json"
