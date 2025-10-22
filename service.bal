@@ -4,13 +4,13 @@ import ballerina/log;
 import ballerina/time;
 import ballerina/regex;
 
-// Choreo-ready configuration with JWKS support
+// Configuration
 configurable boolean enabledDebugLog = false;
 configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
 configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
-// JWT Validator with JWKS support
+// JWT Validator class
 class JWTValidator {
     private string expectedIssuer;
     private string expectedAudience;
@@ -25,9 +25,9 @@ class JWTValidator {
         if jwksEndpoint is string {
             do {
                 self.jwksClient = check new(jwksEndpoint, {timeout: 30});
-                log:printInfo(string `✅ JWKS client initialized: ${jwksEndpoint}`);
+                log:printInfo(string `JWKS client initialized: ${jwksEndpoint}`);
             } on fail error err {
-                log:printError(string `❌ JWKS client initialization failed: ${err.message()}`);
+                log:printError(string `JWKS client initialization failed: ${err.message()}`);
                 self.jwksClient = ();
             }
         } else {
@@ -35,54 +35,42 @@ class JWTValidator {
         }
     }
     
-    // Main JWT validation function
     function validateJWT(string jwtToken) returns jwt:Payload|error {
         do {
-            // Basic format validation
             if !self.isValidJWTFormat(jwtToken) {
-                return error("Invalid JWT format - must have 3 parts separated by dots");
+                return error("Invalid JWT format");
             }
             
-            // Decode JWT to inspect header and payload
             [jwt:Header, jwt:Payload] [header, payload] = check jwt:decode(jwtToken);
             
-            // Validate algorithm
             string? algorithm = header.alg;
             if algorithm is () || !self.isSupportedAlgorithm(algorithm) {
                 return error(string `Unsupported algorithm: ${algorithm ?: "none"}`);
             }
             
-            // Create validator config
             jwt:ValidatorConfig validatorConfig = check self.createValidatorConfig();
-            
-            // Validate JWT
             jwt:Payload validatedPayload = check jwt:validate(jwtToken, validatorConfig);
-            
-            // Custom claim validations
             check self.validateCustomClaims(validatedPayload);
             
-            log:printInfo("✅ JWT validation successful");
+            log:printInfo("JWT validation successful");
             return validatedPayload;
             
         } on fail error err {
-            log:printError(string `❌ JWT validation failed: ${err.message()}`);
+            log:printError(string `JWT validation failed: ${err.message()}`);
             return err;
         }
     }
     
-    // Create validator configuration
     private function createValidatorConfig() returns jwt:ValidatorConfig|error {
         jwt:ValidatorConfig config = {
             issuer: self.expectedIssuer,
             clockSkew: 60
         };
         
-        // Add audience if specified
         if self.expectedAudience != "" {
             config.audience = [self.expectedAudience];
         }
         
-        // Add JWKS configuration if available
         if self.jwksUrl is string {
             config.signatureConfig = {
                 jwksConfig: {
@@ -94,32 +82,26 @@ class JWTValidator {
         return config;
     }
     
-    // Validate JWT format
     private function isValidJWTFormat(string jwtToken) returns boolean {
         string[] parts = regex:split(jwtToken, "\\.");
         return parts.length() == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "";
     }
     
-    // Check supported algorithms
     private function isSupportedAlgorithm(string algorithm) returns boolean {
         return algorithm == "RS256" || algorithm == "HS256" || algorithm == "ES256" || algorithm == "RS512";
     }
     
-    // Custom claim validations
     private function validateCustomClaims(jwt:Payload payload) returns error? {
-        // Validate required userId claim
         anydata userId = payload.get("userId");
         if userId is () {
             return error("Missing required 'userId' claim in JWT");
         }
         
-        // Validate issuer
         anydata issuer = payload.get("iss");
         if issuer is string && issuer != self.expectedIssuer {
             return error(string `Invalid issuer. Expected: ${self.expectedIssuer}, Found: ${issuer}`);
         }
         
-        // Validate expiration
         anydata exp = payload.get("exp");
         if exp is int {
             decimal currentTime = <decimal>time:utcNow()[0];
@@ -128,7 +110,6 @@ class JWTValidator {
             }
         }
         
-        // Validate not before
         anydata nbf = payload.get("nbf");
         if nbf is int {
             decimal currentTime = <decimal>time:utcNow()[0];
@@ -140,7 +121,6 @@ class JWTValidator {
         return;
     }
     
-    // Extract userId from validated payload
     function extractUserId(jwt:Payload payload) returns string|error {
         anydata userId = payload.get("userId");
         if userId is string {
@@ -149,7 +129,6 @@ class JWTValidator {
         return error("Unable to extract userId from JWT payload");
     }
     
-    // Test JWKS connectivity
     function testJWKSConnectivity() returns json|error {
         if self.jwksClient is () {
             return error("JWKS client not configured");
@@ -161,13 +140,27 @@ class JWTValidator {
     }
 }
 
-// Initialize JWT validator
 final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
 
-// HTTP service
+function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
+    foreach RequestParams param in reqParams {
+        string? name = param.name;
+        string[]? value = param.value;
+        
+        if name == "jwt" && value is string[] && value.length() > 0 {
+            string jwtToken = value[0];
+            if jwtToken.trim() == "" {
+                return error("JWT parameter is empty");
+            }
+            return jwtToken;
+        }
+    }
+    
+    return error("JWT parameter not found in request");
+}
+
 service / on new http:Listener(9092) {
 
-    // Health check endpoint
     resource function get health() returns json {
         return {
             status: "UP",
@@ -180,7 +173,6 @@ service / on new http:Listener(9092) {
         };
     }
 
-    // Test JWKS connectivity
     resource function get test\-jwks() returns json {
         if jwksUrl is () {
             return {
@@ -189,17 +181,14 @@ service / on new http:Listener(9092) {
             };
         }
         
-        json|error testResult = jwtValidator.testJWKSConnectivity();
-        if testResult is json {
-            // Safe JSON parsing
-            anydata keysField = ();
-            if testResult is map<anydata> {
-                keysField = testResult["keys"];
-            }
-            
+        json|error connectivityTest = jwtValidator.testJWKSConnectivity();
+        if connectivityTest is json {
             int keysCount = 0;
-            if keysField is json[] {
-                keysCount = keysField.length();
+            if connectivityTest is map<json> {
+                json keysValue = connectivityTest["keys"];
+                if keysValue is json[] {
+                    keysCount = keysValue.length();
+                }
             }
             
             return {
@@ -212,20 +201,18 @@ service / on new http:Listener(9092) {
             return {
                 status: "JWKS_ERROR",
                 jwksUrl: jwksUrl,
-                error: testResult.message(),
+                error: connectivityTest.message(),
                 message: "Failed to connect to JWKS endpoint"
             };
         }
     }
 
-    // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
     resource function post .(RequestBody payload) returns http:Ok|http:BadRequest {
         do {
             if enabledDebugLog {
-                log:printInfo(string `📥 Received request: ${payload.toJsonString()}`);
+                log:printInfo(string `Received request: ${payload.toJsonString()}`);
             }
             
-            // Validate action type
             if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
                 string msg = "Invalid action type";
                 log:printError(string `${msg}: ${payload.actionType.toString()}`);
@@ -238,7 +225,6 @@ service / on new http:Listener(9092) {
                 };
             }
             
-            // Extract request parameters
             RequestParams[]? requestParams = payload.event?.request?.additionalParams;
             if requestParams is () {
                 string msg = "Missing additional parameters";
@@ -252,25 +238,21 @@ service / on new http:Listener(9092) {
                 };
             }
             
-            // Extract JWT token
             string jwtToken = check extractJWTFromParams(requestParams);
             
             if enabledDebugLog {
-                log:printInfo("🔍 Extracted JWT token for validation");
+                log:printInfo("Extracted JWT token for validation");
             }
             
-            // Validate JWT
             jwt:Payload|error validationResult = jwtValidator.validateJWT(jwtToken);
             
             if validationResult is jwt:Payload {
-                // Extract userId
                 string userId = check jwtValidator.extractUserId(validationResult);
                 
                 if enabledDebugLog {
-                    log:printInfo(string `✅ JWT validation successful for userId: ${userId}`);
+                    log:printInfo(string `JWT validation successful for userId: ${userId}`);
                 }
                 
-                // Return success response with userId claim
                 return <http:Ok>{
                     body: {
                         actionStatus: "SUCCESS",
@@ -287,9 +269,8 @@ service / on new http:Listener(9092) {
                     }
                 };
             } else {
-                // Validation failed
                 string errorMsg = validationResult.message();
-                log:printError(string `❌ JWT validation failed: ${errorMsg}`);
+                log:printError(string `JWT validation failed: ${errorMsg}`);
                 
                 return <http:BadRequest>{
                     body: {
@@ -302,7 +283,7 @@ service / on new http:Listener(9092) {
             
         } on fail error err {
             string msg = "Internal server error during request processing";
-            log:printError(string `💥 ${msg}: ${err.message()}`);
+            log:printError(string `${msg}: ${err.message()}`);
             
             return <http:BadRequest>{
                 body: {
@@ -313,22 +294,4 @@ service / on new http:Listener(9092) {
             };
         }
     }
-}
-
-// Utility function to extract JWT from request parameters
-function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
-    foreach RequestParams param in reqParams {
-        string? name = param.name;
-        string[]? value = param.value;
-        
-        if name == "jwt" && value is string[] && value.length() > 0 {
-            string jwtToken = value[0];
-            if jwtToken.trim() == "" {
-                return error("JWT parameter is empty");
-            }
-            return jwtToken;
-        }
-    }
-    
-    return error("JWT parameter not found in request");
 }
