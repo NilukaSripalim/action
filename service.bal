@@ -9,7 +9,7 @@ configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
 configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
-// Define the required types
+// Remove the duplicate type definitions and use these simplified ones
 public type RequestBody record {|
     string actionType;
     Event? event;
@@ -20,10 +20,10 @@ public type Event record {|
 |};
 
 public type Request record {|
-    RequestParams[]? additionalParams;
+    RequestParam[]? additionalParams;
 |};
 
-public type RequestParams record {|
+public type RequestParam record {|
     string? name;
     string[]? value;
 |};
@@ -32,13 +32,6 @@ public type Operation record {|
     string op;
     string path;
     map<anydata> value;
-|};
-
-public type ResponseBody record {|
-    string actionStatus;
-    string? errorMessage?;
-    string? errorDescription?;
-    Operation[]? operations?;
 |};
 
 class JWTValidator {
@@ -172,8 +165,8 @@ class JWTValidator {
 
 final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
 
-function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
-    foreach RequestParams param in reqParams {
+function extractJWTFromParams(RequestParam[] reqParams) returns string|error {
+    foreach RequestParam param in reqParams {
         string? name = param.name;
         string[]? value = param.value;
         
@@ -254,7 +247,7 @@ service / on new http:Listener(9092) {
                 };
             }
             
-            RequestParams[]? requestParams = payload.event?.request?.additionalParams;
+            RequestParam[]? requestParams = payload.event?.request?.additionalParams;
             if requestParams is () {
                 string msg = "Missing additional parameters";
                 log:printError(msg);
