@@ -10,7 +10,7 @@ configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
 configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
-// JWT Validator with JWKS support - All in one class
+// JWT Validator with JWKS support
 class JWTValidator {
     private string expectedIssuer;
     private string expectedAudience;
@@ -74,7 +74,7 @@ class JWTValidator {
     private function createValidatorConfig() returns jwt:ValidatorConfig|error {
         jwt:ValidatorConfig config = {
             issuer: self.expectedIssuer,
-            clockSkew: 60 // 60 seconds tolerance
+            clockSkew: 60
         };
         
         // Add audience if specified
@@ -86,10 +86,7 @@ class JWTValidator {
         if self.jwksUrl is string {
             config.signatureConfig = {
                 jwksConfig: {
-                    url: <string>self.jwksUrl,
-                    clientConfig: {
-                        httpVersion: "1.1"
-                    }
+                    url: <string>self.jwksUrl
                 }
             };
         }
@@ -167,7 +164,7 @@ class JWTValidator {
 // Initialize JWT validator
 final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
 
-// Choreo-ready HTTP service
+// HTTP service
 service / on new http:Listener(9092) {
 
     // Health check endpoint
@@ -192,14 +189,19 @@ service / on new http:Listener(9092) {
             };
         }
         
-        json|error result = jwtValidator.testJWKSConnectivity();
-        if result is json {
-            map<anydata> resultMap = <map<anydata>>result;
-            anydata keysData = resultMap["keys"];
-            int keysCount = 0;
-            if keysData is json[] {
-                keysCount = keysData.length();
+        json|error testResult = jwtValidator.testJWKSConnectivity();
+        if testResult is json {
+            // Safe JSON parsing
+            anydata keysField = ();
+            if testResult is map<anydata> {
+                keysField = testResult["keys"];
             }
+            
+            int keysCount = 0;
+            if keysField is json[] {
+                keysCount = keysField.length();
+            }
+            
             return {
                 status: "JWKS_ACCESSIBLE",
                 jwksUrl: jwksUrl,
@@ -210,7 +212,7 @@ service / on new http:Listener(9092) {
             return {
                 status: "JWKS_ERROR",
                 jwksUrl: jwksUrl,
-                error: result.message(),
+                error: testResult.message(),
                 message: "Failed to connect to JWKS endpoint"
             };
         }
@@ -251,7 +253,7 @@ service / on new http:Listener(9092) {
             }
             
             // Extract JWT token
-            string jwtToken = check self.extractJWT(requestParams);
+            string jwtToken = check extractJWTFromParams(requestParams);
             
             if enabledDebugLog {
                 log:printInfo("🔍 Extracted JWT token for validation");
@@ -311,22 +313,22 @@ service / on new http:Listener(9092) {
             };
         }
     }
+}
 
-    // Utility function to extract JWT from request parameters
-    private function extractJWT(RequestParams[] reqParams) returns string|error {
-        foreach RequestParams param in reqParams {
-            string? name = param.name;
-            string[]? value = param.value;
-            
-            if name == "jwt" && value is string[] && value.length() > 0 {
-                string jwtToken = value[0];
-                if jwtToken.trim() == "" {
-                    return error("JWT parameter is empty");
-                }
-                return jwtToken;
-            }
-        }
+// Utility function to extract JWT from request parameters
+function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
+    foreach RequestParams param in reqParams {
+        string? name = param.name;
+        string[]? value = param.value;
         
-        return error("JWT parameter not found in request");
+        if name == "jwt" && value is string[] && value.length() > 0 {
+            string jwtToken = value[0];
+            if jwtToken.trim() == "" {
+                return error("JWT parameter is empty");
+            }
+            return jwtToken;
+        }
     }
+    
+    return error("JWT parameter not found in request");
 }
