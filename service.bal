@@ -9,6 +9,38 @@ configurable string expectedIssuer = "wso2";
 configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
 configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 
+// Define the required types
+public type RequestBody record {|
+    string actionType;
+    Event? event;
+|};
+
+public type Event record {|
+    Request? request;
+|};
+
+public type Request record {|
+    RequestParams[]? additionalParams;
+|};
+
+public type RequestParams record {|
+    string? name;
+    string[]? value;
+|};
+
+public type Operation record {|
+    string op;
+    string path;
+    map<anydata> value;
+|};
+
+public type ResponseBody record {|
+    string actionStatus;
+    string? errorMessage?;
+    string? errorDescription?;
+    Operation[]? operations?;
+|};
+
 class JWTValidator {
     private string expectedIssuer;
     private string expectedAudience;
@@ -157,8 +189,7 @@ function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
     return error("JWT parameter not found in request");
 }
 
-service /
-on new http:Listener(9092) {
+service / on new http:Listener(9092) {
 
     resource function get health() returns json {
         return {
@@ -211,7 +242,7 @@ on new http:Listener(9092) {
                 log:printInfo(string `Received request: ${payload.toJsonString()}`);
             }
             
-            if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
+            if payload.actionType != "PRE_ISSUE_ACCESS_TOKEN" {
                 string msg = "Invalid action type";
                 log:printError(string `${msg}: ${payload.actionType.toString()}`);
                 return <http:BadRequest>{
