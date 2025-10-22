@@ -88,7 +88,7 @@ class JWTValidator {
                 jwksConfig: {
                     url: <string>self.jwksUrl,
                     clientConfig: {
-                        httpVersion: http:HTTP_1_1
+                        httpVersion: "1.1"
                     }
                 }
             };
@@ -194,7 +194,8 @@ service / on new http:Listener(9092) {
         
         json|error result = jwtValidator.testJWKSConnectivity();
         if result is json {
-            anydata keysData = result.keys;
+            map<anydata> resultMap = <map<anydata>>result;
+            anydata keysData = resultMap["keys"];
             int keysCount = 0;
             if keysData is json[] {
                 keysCount = keysData.length();
