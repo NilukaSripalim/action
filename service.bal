@@ -6,16 +6,27 @@ configurable boolean enabledDebugLog = true;
 // Extract userID from event payload
 isolated function extractUserId(json payload) returns string|error {
     // Try to get userId from event.user.id (primary source)
-    json eventJson = check payload.event;
-    json userJson = check eventJson.user;
-    json userIdJson = check userJson.id;
+    json eventValue = payload.event;
+    if eventValue is error {
+        return error("Event not found in payload");
+    }
     
-    if userIdJson is string {
-        return userIdJson;
+    json userValue = eventValue.user;
+    if userValue is error {
+        return error("User not found in event");
+    }
+    
+    json userIdValue = userValue.id;
+    if userIdValue is error {
+        return error("User ID not found in user");
+    }
+    
+    if userIdValue is string {
+        return userIdValue;
     }
     
     // Alternative: get from accessToken claims "sub" claim
-    json? accessTokenJson = eventJson?.accessToken;
+    json? accessTokenJson = eventValue?.accessToken;
     if accessTokenJson is json {
         json? claimsJson = accessTokenJson?.claims;
         if claimsJson is json[] {
@@ -56,7 +67,7 @@ type ErrorResponseInternalServerError record {|
         allowHeaders: ["*"]
     }
 }
-isolated service / on new http:Listener(9092) {
+isolated service /action on new http:Listener(9092) {
 
     // Health check endpoint (publicly accessible)
     isolated resource function get health() returns json {
@@ -73,14 +84,17 @@ isolated service / on new http:Listener(9092) {
     isolated resource function post .(json payload, http:Request request) returns SuccessResponseOk|ErrorResponseBadRequest|ErrorResponseInternalServerError {
         do {
             if enabledDebugLog {
-                log:printInfo(string `📥 Pre-Issue Access Token action triggered`);
+                log:printInfo("📥 Pre-Issue Access Token action triggered");
                 
                 // Safely extract requestId and actionType
                 json? requestIdJson = payload?.requestId;
                 json? actionTypeJson = payload?.actionType;
                 
-                log:printInfo(string `Request ID: ${requestIdJson?.toString() ?: "unknown"}`);
-                log:printInfo(string `Action Type: ${actionTypeJson?.toString() ?: "unknown"}`);
+                string requestIdStr = requestIdJson?.toString() ?: "unknown";
+                string actionTypeStr = actionTypeJson?.toString() ?: "unknown";
+                
+                log:printInfo(string `Request ID: ${requestIdStr}`);
+                log:printInfo(string `Action Type: ${actionTypeStr}`);
                 
                 // Log request headers for debugging
                 string[] headerNames = request.getHeaderNames();
@@ -96,7 +110,8 @@ isolated service / on new http:Listener(9092) {
             json? actionTypeJson = payload?.actionType;
             if actionTypeJson != "PRE_ISSUE_ACCESS_TOKEN" {
                 string msg = "Invalid action type";
-                log:printError(string `${msg}: ${actionTypeJson?.toString() ?: "null"}`);
+                string actionTypeStr = actionTypeJson?.toString() ?: "null";
+                log:printError(string `${msg}: ${actionTypeStr}`);
                 return <ErrorResponseBadRequest>{
                     body: {
                         actionStatus: "ERROR",
@@ -121,9 +136,13 @@ isolated service / on new http:Listener(9092) {
                 json? tenantJson = eventJson?.tenant;
                 json? tenantNameJson = tenantJson?.name;
                 
-                log:printInfo(string `👤 User from: ${userIdFromEventJson?.toString() ?: "N/A"}`);
-                log:printInfo(string `🏢 Organization: ${orgNameJson?.toString() ?: "N/A"}`);
-                log:printInfo(string `🏛️ Tenant: ${tenantNameJson?.toString() ?: "N/A"}`);
+                string userIdStr = userIdFromEventJson?.toString() ?: "N/A";
+                string orgNameStr = orgNameJson?.toString() ?: "N/A";
+                string tenantNameStr = tenantNameJson?.toString() ?: "N/A";
+                
+                log:printInfo(string `👤 User from: ${userIdStr}`);
+                log:printInfo(string `🏢 Organization: ${orgNameStr}`);
+                log:printInfo(string `🏛️ Tenant: ${tenantNameStr}`);
             }
             
             // Create the operation to add userId claim to access token
@@ -142,7 +161,7 @@ isolated service / on new http:Listener(9092) {
             };
             
             if enabledDebugLog {
-                log:printInfo(string `📤 Adding userId claim to access token`);
+                log:printInfo("📤 Adding userId claim to access token");
                 log:printInfo(string `Response: ${successResponse.toJsonString()}`);
             }
             
