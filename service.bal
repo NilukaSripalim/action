@@ -1,172 +1,14 @@
 import ballerina/http;
-import ballerina/jwt;
 import ballerina/log;
 import ballerina/time;
-import ballerina/regex;
 
-configurable boolean enabledDebugLog = false;
-configurable string expectedIssuer = "wso2";
-configurable string? expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma";
-configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
+// Simple configuration for testing action trigger
+configurable boolean enabledDebugLog = true;
+configurable string testUserId = "testuser123";
 
-// Remove the duplicate type definitions and use these simplified ones
-public type RequestBody record {|
-    string actionType;
-    Event? event;
-|};
-
-public type Event record {|
-    Request? request;
-|};
-
-public type Request record {|
-    RequestParam[]? additionalParams;
-|};
-
-public type RequestParam record {|
-    string? name;
-    string[]? value;
-|};
-
-public type Operation record {|
-    string op;
-    string path;
-    map<anydata> value;
-|};
-
-class JWTValidator {
-    private string expectedIssuer;
-    private string expectedAudience;
-    private string? jwksUrl;
-    private http:Client? jwksClient;
-    
-    function init(string issuer = "wso2", string? audience = (), string? jwksEndpoint = ()) {
-        self.expectedIssuer = issuer;
-        self.expectedAudience = audience ?: "";
-        self.jwksUrl = jwksEndpoint;
-        
-        if jwksEndpoint is string {
-            do {
-                self.jwksClient = check new(jwksEndpoint, {timeout: 30});
-                log:printInfo(string `JWKS client initialized: ${jwksEndpoint}`);
-            } on fail error err {
-                log:printError(string `JWKS client initialization failed: ${err.message()}`);
-                self.jwksClient = ();
-            }
-        } else {
-            self.jwksClient = ();
-        }
-    }
-    
-    function validateJWT(string jwtToken) returns jwt:Payload|error {
-        do {
-            if !self.isValidJWTFormat(jwtToken) {
-                return error("Invalid JWT format");
-            }
-            
-            [jwt:Header, jwt:Payload] [header, payload] = check jwt:decode(jwtToken);
-            
-            string? algorithm = header.alg;
-            if algorithm is () || !self.isSupportedAlgorithm(algorithm) {
-                return error(string `Unsupported algorithm: ${algorithm ?: "none"}`);
-            }
-            
-            jwt:ValidatorConfig validatorConfig = check self.createValidatorConfig();
-            jwt:Payload validatedPayload = check jwt:validate(jwtToken, validatorConfig);
-            check self.validateCustomClaims(validatedPayload);
-            
-            log:printInfo("JWT validation successful");
-            return validatedPayload;
-            
-        } on fail error err {
-            log:printError(string `JWT validation failed: ${err.message()}`);
-            return err;
-        }
-    }
-    
-    private function createValidatorConfig() returns jwt:ValidatorConfig|error {
-        jwt:ValidatorConfig config = {
-            issuer: self.expectedIssuer,
-            clockSkew: 60
-        };
-        
-        if self.expectedAudience != "" {
-            config.audience = [self.expectedAudience];
-        }
-        
-        if self.jwksUrl is string {
-            config.signatureConfig = {
-                jwksConfig: {
-                    url: <string>self.jwksUrl
-                }
-            };
-        }
-        
-        return config;
-    }
-    
-    private function isValidJWTFormat(string jwtToken) returns boolean {
-        string[] parts = regex:split(jwtToken, "\\.");
-        return parts.length() == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "";
-    }
-    
-    private function isSupportedAlgorithm(string algorithm) returns boolean {
-        return algorithm == "RS256" || algorithm == "HS256" || algorithm == "ES256" || algorithm == "RS512";
-    }
-    
-    private function validateCustomClaims(jwt:Payload payload) returns error? {
-        anydata userId = payload.get("userId");
-        if userId is () {
-            return error("Missing required 'userId' claim in JWT");
-        }
-        
-        anydata issuer = payload.get("iss");
-        if issuer is string && issuer != self.expectedIssuer {
-            return error(string `Invalid issuer. Expected: ${self.expectedIssuer}, Found: ${issuer}`);
-        }
-        
-        anydata exp = payload.get("exp");
-        if exp is int {
-            decimal currentTime = <decimal>time:utcNow()[0];
-            if <decimal>exp < currentTime {
-                return error("JWT token has expired");
-            }
-        }
-        
-        anydata nbf = payload.get("nbf");
-        if nbf is int {
-            decimal currentTime = <decimal>time:utcNow()[0];
-            if <decimal>nbf > currentTime {
-                return error("JWT token is not yet valid");
-            }
-        }
-        
-        return;
-    }
-    
-    function extractUserId(jwt:Payload payload) returns string|error {
-        anydata userId = payload.get("userId");
-        if userId is string {
-            return userId;
-        }
-        return error("Unable to extract userId from JWT payload");
-    }
-    
-    function testJWKSConnectivity() returns json|error {
-        if self.jwksClient is () {
-            return error("JWKS client not configured");
-        }
-        
-        http:Client jwksClient = <http:Client>self.jwksClient;
-        json response = check jwksClient->get("");
-        return response;
-    }
-}
-
-final JWTValidator jwtValidator = new(expectedIssuer, expectedAudience, jwksUrl);
-
-function extractJWTFromParams(RequestParam[] reqParams) returns string|error {
-    foreach RequestParam param in reqParams {
+// Simple function to extract JWT parameter (without validation)
+function extractJWTFromParams(RequestParams[] reqParams) returns string|error {
+    foreach RequestParams param in reqParams {
         string? name = param.name;
         string[]? value = param.value;
         
@@ -182,60 +24,33 @@ function extractJWTFromParams(RequestParam[] reqParams) returns string|error {
     return error("JWT parameter not found in request");
 }
 
-service / on new http:Listener(9092) {
+service /
+on new http:Listener(9092) {
 
+    // Health check endpoint
     resource function get health() returns json {
         return {
             status: "UP",
-            service: "asgardeo-e2e-special-cases",
+            service: "asgardeo-e2e-special-cases-simple",
             version: "1.0.0",
             timestamp: time:utcNow()[0],
-            jwksConfigured: jwksUrl is string,
-            expectedIssuer: expectedIssuer,
-            expectedAudience: expectedAudience
+            mode: "SIMPLE_ACTION_TRIGGER_TEST",
+            testUserId: testUserId
         };
     }
 
-    resource function get test\-jwks() returns json {
-        if jwksUrl is () {
-            return {
-                status: "JWKS_NOT_CONFIGURED",
-                message: "JWKS URL not provided in configuration"
-            };
-        }
-        
-        json|error jwksResult = jwtValidator.testJWKSConnectivity();
-        if jwksResult is json {
-            int keyCount = 0;
-            map<json> jwksMap = <map<json>>jwksResult;
-            json keysJson = jwksMap["keys"];
-            if keysJson is json[] {
-                keyCount = keysJson.length();
-            }
-            
-            return {
-                status: "JWKS_ACCESSIBLE",
-                jwksUrl: jwksUrl,
-                keysCount: keyCount,
-                message: "JWKS endpoint is accessible"
-            };
-        } else {
-            return {
-                status: "JWKS_ERROR",
-                jwksUrl: jwksUrl,
-                error: jwksResult.message(),
-                message: "Failed to connect to JWKS endpoint"
-            };
-        }
-    }
-
+    // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
+    // This version just handles the action trigger without JWT validation
     resource function post .(RequestBody payload) returns http:Ok|http:BadRequest {
         do {
             if enabledDebugLog {
-                log:printInfo(string `Received request: ${payload.toJsonString()}`);
+                log:printInfo(string `📥 Received webhook request from Asgardeo`);
+                log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
+                log:printInfo(string `Action Type: ${payload.actionType.toString()}`);
             }
             
-            if payload.actionType != "PRE_ISSUE_ACCESS_TOKEN" {
+            // Validate action type
+            if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
                 string msg = "Invalid action type";
                 log:printError(string `${msg}: ${payload.actionType.toString()}`);
                 return <http:BadRequest>{
@@ -247,7 +62,10 @@ service / on new http:Listener(9092) {
                 };
             }
             
-            RequestParam[]? requestParams = payload.event?.request?.additionalParams;
+            log:printInfo("✅ Action type validation passed: PRE_ISSUE_ACCESS_TOKEN");
+            
+            // Extract request parameters
+            RequestParams[]? requestParams = payload.event?.request?.additionalParams;
             if requestParams is () {
                 string msg = "Missing additional parameters";
                 log:printError(msg);
@@ -260,52 +78,66 @@ service / on new http:Listener(9092) {
                 };
             }
             
-            string jwtToken = check extractJWTFromParams(requestParams);
+            log:printInfo("✅ Additional parameters found");
             
-            if enabledDebugLog {
-                log:printInfo("Extracted JWT token for validation");
-            }
+            // Extract JWT token (but don't validate it yet)
+            string|error jwtResult = extractJWTFromParams(requestParams);
             
-            jwt:Payload|error validationResult = jwtValidator.validateJWT(jwtToken);
-            
-            if validationResult is jwt:Payload {
-                string userId = check jwtValidator.extractUserId(validationResult);
-                
-                if enabledDebugLog {
-                    log:printInfo(string `JWT validation successful for userId: ${userId}`);
-                }
-                
-                return <http:Ok>{
-                    body: {
-                        actionStatus: "SUCCESS",
-                        operations: [
-                            {
-                                op: "add",
-                                path: "/accessToken/claims/-",
-                                value: {
-                                    name: "userId",
-                                    value: userId
-                                }
-                            }
-                        ]
-                    }
-                };
-            } else {
-                string errorMsg = validationResult.message();
-                log:printError(string `JWT validation failed: ${errorMsg}`);
-                
+            if jwtResult is error {
+                string msg = jwtResult.message();
+                log:printError(string `❌ JWT extraction failed: ${msg}`);
                 return <http:BadRequest>{
                     body: {
                         actionStatus: "ERROR",
-                        errorMessage: "JWT validation failed",
-                        errorDescription: errorMsg
+                        errorMessage: "JWT parameter extraction failed",
+                        errorDescription: msg
                     }
                 };
             }
             
+            string jwtToken = jwtResult;
+            log:printInfo(string `✅ JWT token extracted (length: ${jwtToken.length()} characters)`);
+            
+            if enabledDebugLog {
+                // Log first and last 20 characters for debugging
+                string jwtPreview = jwtToken.length() > 40 ? 
+                    jwtToken.substring(0, 20) + "..." + jwtToken.substring(jwtToken.length() - 20) :
+                    "JWT_TOO_SHORT";
+                log:printInfo(string `JWT Preview: ${jwtPreview}`);
+            }
+            
+            // For now, just use the configured test userId
+            // Later you can replace this with actual JWT validation
+            string userId = testUserId;
+            
+            log:printInfo(string `✅ Using test userId: ${userId}`);
+            
+            // Return success response with userId claim
+            json successResponse = {
+                actionStatus: "SUCCESS",
+                operations: [
+                    {
+                        op: "add",
+                        path: "/accessToken/claims/-",
+                        value: {
+                            name: "userId",
+                            value: userId
+                        }
+                    }
+                ]
+            };
+            
+            if enabledDebugLog {
+                log:printInfo(string `📤 Sending success response: ${successResponse.toJsonString()}`);
+            }
+            
+            return <http:Ok>{
+                body: successResponse
+            };
+            
         } on fail error err {
             string msg = "Internal server error during request processing";
-            log:printError(string `${msg}: ${err.message()}`);
+            log:printError(string `💥 ${msg}: ${err.message()}`);
             
             return <http:BadRequest>{
                 body: {
@@ -315,5 +147,40 @@ service / on new http:Listener(9092) {
                 }
             };
         }
+    }
+
+    // Test endpoint to simulate Asgardeo webhook call
+    resource function post test() returns json {
+        // Sample payload that mimics what Asgardeo sends
+        RequestBody testPayload = {
+            requestId: "test-" + time:utcNow()[0].toString(),
+            actionType: PRE_ISSUE_ACCESS_TOKEN,
+            event: {
+                request: {
+                    grantType: "client_credentials",
+                    clientId: "DNrwSQcWhrfAImyLp0m_CjigT9Ma",
+                    additionalParams: [
+                        {
+                            name: "jwt",
+                            value: ["sample.jwt.token.for.testing"]
+                        }
+                    ]
+                }
+            }
+        };
+        
+        log:printInfo("🧪 Test endpoint called - simulating Asgardeo webhook");
+        
+        return {
+            status: "TEST_WEBHOOK_SIMULATION",
+            message: "This endpoint simulates what Asgardeo would send",
+            samplePayload: testPayload,
+            instructions: [
+                "1. Deploy this service to Choreo",
+                "2. Get the webhook URL from Choreo",
+                "3. Configure Pre-Issue Access Token action in Asgardeo",
+                "4. Test with actual mobile app flow"
+            ]
+        };
     }
 }
