@@ -9,12 +9,29 @@ auth:FileUserStoreConfig fileUserStoreConfig = {};
 
 function extractJWT(RequestParams[] requestParams) returns string|error {
     foreach RequestParams param in requestParams {
-        if param.name == "jwt" && param.value is string[] && param.value.length() > 0 {
-            return param.value[0];
+        string[]? value = param.value;
+        if param.name == "jwt" && value is string[] && value.length() > 0 {
+            return value[0];
         }
     }
     return error("JWT parameter not found");
 }
+
+// Response types
+type SuccessResponseOk record {|
+    *http:Ok;
+    json body;
+|};
+
+type ErrorResponseBadRequest record {|
+    *http:BadRequest;
+    json body;
+|};
+
+type ErrorResponseInternalServerError record {|
+    *http:InternalServerError;
+    json body;
+|};
 
 @http:ServiceConfig {
     auth: [
@@ -33,7 +50,7 @@ isolated service / on new http:Listener(9092) {
                 if requestParams is () {
                     string msg = "Required parameters for JWT validation are missing";
                     log:printDebug(msg);
-                    return <ErrorResponseBadRequest>{body: {actionStatus: ERROR, errorMessage: msg, errorDescription: "userId & other params are mandatory to proceed the request"}};
+                    return <ErrorResponseBadRequest>{body: {actionStatus: "ERROR", errorMessage: msg, errorDescription: "userId & other params are mandatory to proceed the request"}};
                 }
                 log:printDebug(requestParams.toJsonString());
                 jwt:ValidatorConfig validatorConfig = {
@@ -49,7 +66,7 @@ isolated service / on new http:Listener(9092) {
                     [jwt:Header, jwt:Payload] [_, jwtpayload] = check jwt:decode(jwt);
                     return <SuccessResponseOk>{
                         body: {
-                            actionStatus: SUCCESS,
+                            actionStatus: "SUCCESS",
                             operations: [
                                 {
                                     op: "add",
@@ -64,11 +81,11 @@ isolated service / on new http:Listener(9092) {
                     };
                 }
             }
-            return <ErrorResponseBadRequest>{body: {actionStatus: ERROR, errorMessage: "Invalid action type", errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"}};
+            return <ErrorResponseBadRequest>{body: {actionStatus: "ERROR", errorMessage: "Invalid action type", errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"}};
         } on fail error err {
             string msg = "Something went wrong while extracting additional parameters";
             log:printDebug(string `${msg}: ${err.message()}`);
-            return <ErrorResponseBadRequest>{body: {actionStatus: ERROR, errorMessage: msg, errorDescription: err.detail().toString()}};
+            return <ErrorResponseBadRequest>{body: {actionStatus: "ERROR", errorMessage: msg, errorDescription: err.detail().toString()}};
         }
     }
 
