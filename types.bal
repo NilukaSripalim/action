@@ -1,71 +1,61 @@
 // Simplified types for Choreo deployment - SPA Authentication Extension API
 
-// Request and Response Types - Made flexible for Asgardeo compatibility
-type RequestParams record {|
+// Request and Response Types - Compatible with Ballerina 2201.8.8
+type RequestParams record {
     string? name;
     string[]? value;
-    ...;
-|};
+};
 
-type Request record {|
+type Request record {
     string? grantType;
     string? clientId;
     string[]? scopes;
     RequestParams[]? additionalParams;
-    ...;
-|};
+};
 
-type User record {|
+type User record {
     string? id;
-    ...;
-|};
+};
 
-type Organization record {|
+type Organization record {
     string? id;
     string? name;
-    ...;
-|};
+};
 
-type Tenant record {|
+type Tenant record {
     string? id;
     string? name;
-    ...;
-|};
+};
 
-type UserStore record {|
+type UserStore record {
     string? id;
     string? name;
-    ...;
-|};
+};
 
-type AccessTokenClaims record {|
+type AccessTokenClaims record {
     string? name;
     string|int|boolean|string[]? value;
-    ...;
-|};
+};
 
-type AccessToken record {|
+type AccessToken record {
     AccessTokenClaims[]? claims;
     string[]? scopes;
-    ...;
-|};
+};
 
-type Event record {|
+type Event record {
     Request? request;
     Tenant? tenant;
     User? user;
     Organization? organization;
     UserStore? userStore;
     AccessToken? accessToken;
-    ...;
-|};
+};
 
-type RequestBody record {|
+type RequestBody record {
     string? requestId;
     ActionType? actionType;
     Event? event;
-    ...;
-|};
+};
 
 // Operation Types for Response
 type OperationValue record {
