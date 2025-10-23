@@ -7,7 +7,7 @@ configurable boolean enabledDebugLog = false;
 configurable string certFilePath = ?;
 auth:FileUserStoreConfig fileUserStoreConfig = {};
 
-function extractJWT(RequestParams[] requestParams) returns string|error {
+isolated function extractJWT(RequestParams[] requestParams) returns string|error {
     foreach RequestParams param in requestParams {
         string[]? value = param.value;
         if param.name == "jwt" && value is string[] && value.length() > 0 {
