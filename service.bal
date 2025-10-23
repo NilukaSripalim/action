@@ -15,8 +15,11 @@ isolated function extractUserId(RequestBody payload) returns string|error {
     AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
     if claims is AccessTokenClaims[] {
         foreach AccessTokenClaims claim in claims {
-            if claim.name == "sub" && claim.value is string {
-                return claim.value;
+            if claim.name == "sub" {
+                string|int|boolean|string[]? claimValue = claim.value;
+                if claimValue is string {
+                    return claimValue;
+                }
             }
         }
     }
@@ -32,7 +35,7 @@ isolated function extractUserId(RequestBody payload) returns string|error {
         allowHeaders: ["*"]
     }
 }
-isolated service / on new http:Listener(9092) {
+isolated service /action on new http:Listener(9092) {
 
     // Health check endpoint (publicly accessible)
     isolated resource function get health() returns json {
