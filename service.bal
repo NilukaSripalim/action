@@ -4,7 +4,7 @@ import ballerina/jwt;
 import ballerina/log;
 
 configurable boolean enabledDebugLog = false;
-configurable string certFilePath = ?;
+configurable string? jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks";
 auth:FileUserStoreConfig fileUserStoreConfig = {};
 
 isolated function extractJWT(RequestParams[] requestParams) returns string|error {
@@ -57,7 +57,9 @@ isolated service / on new http:Listener(9092) {
                     issuer: "wso2",
                     clockSkew: 60,
                     signatureConfig: {
-                        certFile: certFilePath
+                        jwksConfig: {
+                            url: <string>jwksUrl
+                        }
                     }
                 };
                 string jwt = check extractJWT(requestParams);
