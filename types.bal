@@ -1,6 +1,6 @@
 // Simplified types for Choreo deployment - SPA Authentication Extension API
 
-// Request and Response Types - Compatible with Ballerina 2201.8.8
+// Complete types for Pre-Issue Access Token action with proper optionality
 type RequestParams record {
     string? name;
     string[]? value;
@@ -15,6 +15,8 @@ type Request record {
 
 type User record {
     string? id;
+    string? username;
+    string? email;
 };
 
 type Organization record {
@@ -37,9 +39,10 @@ type AccessTokenClaims record {
     string|int|boolean|string[]? value;
 };
 
+// AccessToken type with all fields properly optional
 type AccessToken record {
-    AccessTokenClaims[]? claims;
-    string[]? scopes;
+    AccessTokenClaims[]? claims?;
+    string[]? scopes?;
 };
 
 type Event record {
