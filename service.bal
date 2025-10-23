@@ -41,7 +41,7 @@ isolated service /action on new http:Listener(9092) {
     isolated resource function get health() returns json {
         return {
             status: "UP",
-            service: "asgardeo-e2e-special-cases",
+            serviceName: "asgardeo-e2e-special-cases",
             version: "1.0.0",
             description: "Pre-Issue Access Token Action - UserID Injection"
         };
