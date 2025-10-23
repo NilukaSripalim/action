@@ -1,91 +1,138 @@
-// Simplified types for Choreo deployment - SPA Authentication Extension API
+import ballerina/http;
 
-// Updated types based on actual Asgardeo webhook payload - using open records
-type RequestParams record {
-    string? name;
-    string[]? value;
+// Response types
+type SuccessResponseOk record {|
+    *http:Ok;
+    SuccessResponseBody body;
+|};
+
+type SuccessResponseBody SuccessResponse|FailedResponse;
+
+type SuccessResponse record {
+    SUCCESS actionStatus;
+    Operations[] operations;
 };
 
-type Request record {
-    string? grantType;
-    string? clientId;
-    string[]? scopes;
-    RequestParams[]? additionalParams;
-    RequestParams[]? additionalHeaders;
+type FailedResponse record {
+    FAILED actionStatus;
+    string failureReason;
+    string failureDescription;
 };
 
-type User record {
-    string? id;
-    Organization? organization;
+type ErrorResponseInternalServerError record {|
+    *http:InternalServerError;
+    ErrorResponse body;
+|};
+
+type ErrorResponseBadRequest record {|
+    *http:BadRequest;
+    ErrorResponse body;
+|};
+
+type ErrorResponse record {
+    ERROR actionStatus?;
+    string errorMessage?;
+    string errorDescription?;
 };
 
-type Organization record {
-    string? id;
-    string? name;
-    string? orgHandle;
-    int? depth;
-};
-
-type Tenant record {
-    string? id;
-    string? name;
-};
-
-type UserStore record {
-    string? id;
-    string? name;
-};
-
-type AccessTokenClaims record {
-    string? name;
-    string|int|boolean|string[]? value;
-};
-
-type AccessToken record {
-    string? tokenType;
-    AccessTokenClaims[]? claims;
-};
-
-type RefreshToken record {
-    AccessTokenClaims[]? claims;
-};
-
-type OperationPaths record {
-    string? op;
-    string[]? paths;
+// Request types
+type RequestBody record {
+    string requestId?;
+    PRE_ISSUE_ACCESS_TOKEN actionType?;
+    Event event?;
+    AllowedOperations allowedOperations?;
 };
 
 type Event record {
-    Request? request;
-    Tenant? tenant;
-    User? user;
-    Organization? organization;
-    UserStore? userStore;
-    AccessToken? accessToken;
-    RefreshToken? refreshToken;
+    Request request?;
+    Tenant tenant?;
+    User user?;
+    Organization organization?;
+    UserStore userStore?;
+    AccessToken accessToken?;
+    RefreshToken refreshToken?;
 };
 
-type RequestBody record {
-    string? requestId;
-    ActionType? actionType;
-    Event? event;
-    OperationPaths[]? allowedOperations;
+type Request record {
+    string grantType?;
+    string clientId?;
+    string[] scopes?;
+    RequestHeaders[] additionalHeaders?;
+    RequestParams[] additionalParams?;
 };
 
-// Operation Types for Response
-type OperationValue record {
-    string name;
-    string value;
+type RequestParams record {
+    string name?;
+    string[] value?;
 };
 
-type Operation record {
+type RequestHeaders record {
+    string name?;
+    string[] value?;
+};
+
+type User record {
+    string id?;
+    Organization organization?;
+};
+
+type Organization record {
+    string id?;
+    string name?;
+    string orgHandle?;
+    int depth?;
+};
+
+type Tenant record {
+    string id?;
+    string name?;
+};
+
+type UserStore record {
+    string id?;
+    string name?;
+};
+
+type AccessToken record {
+    string tokenType?;
+    AccessTokenClaims[] claims?;
+    string[] scopes?;
+};
+
+type RefreshToken record {
+    AccessTokenClaims[] claims?;
+};
+
+type AccessTokenClaims record {
+    string name?;
+    string|int|boolean|string[] value?;
+};
+
+// Operation types
+type Operations record {
     string op;
     string path;
     OperationValue value;
 };
 
-// Action and Status Enums
-enum ActionType {
+type OperationValue record {
+    string name;
+    string value;
+};
+
+type AllowedOperations (addOperation|replaceOperation|removeOperation)[];
+
+type AllowedOperation record {
+    "add"|"replace"|"remove" op?;
+    string[] paths?;
+};
+
+type addOperation AllowedOperation;
+type replaceOperation AllowedOperation;
+type removeOperation AllowedOperation;
+
+// Enums
+enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
 }
 
