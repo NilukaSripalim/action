@@ -3,16 +3,6 @@ import ballerina/log;
 
 configurable boolean enabledDebugLog = true;
 
-// Configuration for webhook authentication
-@http:ServiceConfig {
-    cors: {
-        allowCredentials: false,
-        allowOrigins: ["*"],
-        allowMethods: ["GET", "POST", "OPTIONS"],
-        allowHeaders: ["*"]
-    }
-}
-
 // Extract userID from event payload
 isolated function extractUserId(json payload) returns string|error {
     // Try to get userId from event.user.id (primary source)
@@ -25,13 +15,13 @@ isolated function extractUserId(json payload) returns string|error {
     }
     
     // Alternative: get from accessToken claims "sub" claim
-    json? accessTokenJson = <json?>eventJson?.accessToken;
+    json? accessTokenJson = eventJson?.accessToken;
     if accessTokenJson is json {
-        json? claimsJson = <json?>accessTokenJson?.claims;
+        json? claimsJson = accessTokenJson?.claims;
         if claimsJson is json[] {
             foreach json claim in claimsJson {
-                json? nameJson = <json?>claim?.name;
-                json? valueJson = <json?>claim?.value;
+                json? nameJson = claim?.name;
+                json? valueJson = claim?.value;
                 if nameJson == "sub" && valueJson is string {
                     return valueJson;
                 }
@@ -58,6 +48,14 @@ type ErrorResponseInternalServerError record {|
     json body;
 |};
 
+@http:ServiceConfig {
+    cors: {
+        allowCredentials: false,
+        allowOrigins: ["*"],
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        allowHeaders: ["*"]
+    }
+}
 isolated service / on new http:Listener(9092) {
 
     // Health check endpoint (publicly accessible)
@@ -78,8 +76,8 @@ isolated service / on new http:Listener(9092) {
                 log:printInfo(string `📥 Pre-Issue Access Token action triggered`);
                 
                 // Safely extract requestId and actionType
-                json? requestIdJson = <json?>payload?.requestId;
-                json? actionTypeJson = <json?>payload?.actionType;
+                json? requestIdJson = payload?.requestId;
+                json? actionTypeJson = payload?.actionType;
                 
                 log:printInfo(string `Request ID: ${requestIdJson?.toString() ?: "unknown"}`);
                 log:printInfo(string `Action Type: ${actionTypeJson?.toString() ?: "unknown"}`);
@@ -95,7 +93,7 @@ isolated service / on new http:Listener(9092) {
             }
             
             // Validate action type
-            json? actionTypeJson = <json?>payload?.actionType;
+            json? actionTypeJson = payload?.actionType;
             if actionTypeJson != "PRE_ISSUE_ACCESS_TOKEN" {
                 string msg = "Invalid action type";
                 log:printError(string `${msg}: ${actionTypeJson?.toString() ?: "null"}`);
@@ -115,13 +113,13 @@ isolated service / on new http:Listener(9092) {
                 log:printInfo(string `✅ Extracted userId: ${userId}`);
                 
                 // Safely extract debug info
-                json? eventJson = <json?>payload?.event;
-                json? userJson = <json?>eventJson?.user;
-                json? userIdFromEventJson = <json?>userJson?.id;
-                json? orgJson = <json?>eventJson?.organization;
-                json? orgNameJson = <json?>orgJson?.name;
-                json? tenantJson = <json?>eventJson?.tenant;
-                json? tenantNameJson = <json?>tenantJson?.name;
+                json? eventJson = payload?.event;
+                json? userJson = eventJson?.user;
+                json? userIdFromEventJson = userJson?.id;
+                json? orgJson = eventJson?.organization;
+                json? orgNameJson = orgJson?.name;
+                json? tenantJson = eventJson?.tenant;
+                json? tenantNameJson = tenantJson?.name;
                 
                 log:printInfo(string `👤 User from: ${userIdFromEventJson?.toString() ?: "N/A"}`);
                 log:printInfo(string `🏢 Organization: ${orgNameJson?.toString() ?: "N/A"}`);
