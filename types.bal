@@ -1,96 +1,132 @@
-// Simplified types for Choreo deployment - SPA Authentication Extension API
+import ballerina/http;
 
-// Updated types based on actual Asgardeo webhook payload
-type RequestParams record {
-    string? name;
-    string[]? value;
+type SuccessResponseOk record {|
+    *http:Ok;
+    SuccessResponseBody body;
+|};
+
+type SuccessResponseBody SuccessResponse|FailedResponse;
+
+type SuccessResponse record {
+    SUCCESS actionStatus;
+    Operations[] operations;
 };
 
-type Request record {
-    string? grantType;
-    string? clientId;
-    string[]? scopes;
-    RequestParams[]? additionalParams;
-    RequestParams[]? additionalHeaders;
+type FailedResponse record {
+    FAILED actionStatus;
+    string failureReason;
+    string failureDEscription;
 };
 
 type User record {
-    string? id;
-    Organization? organization;
+    string id?;
 };
 
 type Organization record {
-    string? id;
-    string? name;
-    string? orgHandle;
-    int? depth;
+    string id?;
+    string name?;
 };
 
-type Tenant record {
-    string? id;
-    string? name;
+type ErrorResponseInternalServerError record {|
+    *http:InternalServerError;
+    ErrorResponse body;
+|};
+
+type addOperation AllowedOperation;
+
+type Request record {
+    string grantType?;
+    string clientId?;
+    string[] scopes?;
+    RequestHeaders[] additionalHeaders?;
+    RequestParams[] additionalParams?;
 };
 
-type UserStore record {
-    string? id;
-    string? name;
+type RequestParams record {
+    string name?;
+    string[] value?;
 };
 
 type AccessTokenClaims record {
-    string? name;
-    string|int|boolean|string[]? value;
+    string name?;
+    string|int|boolean|string[] value?;
 };
+
+type replaceOperation AllowedOperation;
+
+type ErrorResponse record {
+    ERROR actionStatus?;
+    string errorMessage?;
+    string errorDescription?;
+};
+
+type ErrorResponseBadRequest record {|
+    *http:BadRequest;
+    ErrorResponse body;
+|};
+
+type Tenant record {
+    string id?;
+    string name?;
+};
+
+type UserStore record {
+    string id?;
+    string name?;
+};
+
+type removeOperation AllowedOperation;
 
 type AccessToken record {
-    string? tokenType;
-    AccessTokenClaims[]? claims;
+    AccessTokenClaims[] claims?;
+    string[] scopes?;
 };
 
-type RefreshToken record {
-    AccessTokenClaims[]? claims;
-};
-
-type OperationPaths record {
-    string? op;
-    string[]? paths;
-};
+type AllowedOperations (addOperation|replaceOperation|removeOperation)[];
 
 type Event record {
-    Request? request;
-    Tenant? tenant;
-    User? user;
-    Organization? organization;
-    UserStore? userStore;
-    AccessToken? accessToken;
-    RefreshToken? refreshToken;
+    Request request?;
+    Tenant tenant?;
+    User user?;
+    Organization organization?;
+    UserStore userStore?;
+    AccessToken accessToken?;
 };
 
-type RequestBody record {
-    string? requestId;
-    ActionType? actionType;
-    Event? event;
-    OperationPaths[]? allowedOperations;
+type AllowedOperation record {
+    "add"|"replace"|"remove" op?;
+    string[] paths?;
 };
 
-// Operation Types for Response
-type OperationValue record {
-    string name;
-    string value;
+type RequestHeaders record {
+    string name?;
+    string[] value?;
 };
 
-type Operation record {
+type Operations record {
     string op;
     string path;
     OperationValue value;
 };
 
-// Action and Status Enums
-enum ActionType {
+type OperationValue record {
+    string name;
+    string value;
+};
+
+type RequestBody record {
+    string requestId?;
+    PRE_ISSUE_ACCESS_TOKEN actionType?;
+    Event event?;
+    AllowedOperations allowedOperations?;
+};
+
+enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
-}
+};
 
 enum ActionStatus {
     SUCCESS,
     FAILED,
     ERROR
-}
+};
