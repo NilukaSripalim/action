@@ -1,6 +1,6 @@
 // Simplified types for Choreo deployment - SPA Authentication Extension API
 
-// Complete types for Pre-Issue Access Token action with proper optionality
+// Updated types based on actual Asgardeo webhook payload
 type RequestParams record {
     string? name;
     string[]? value;
@@ -11,17 +11,19 @@ type Request record {
     string? clientId;
     string[]? scopes;
     RequestParams[]? additionalParams;
+    RequestParams[]? additionalHeaders;
 };
 
 type User record {
     string? id;
-    string? username;
-    string? email;
+    Organization? organization;
 };
 
 type Organization record {
     string? id;
     string? name;
+    string? orgHandle;
+    int? depth;
 };
 
 type Tenant record {
@@ -39,10 +41,18 @@ type AccessTokenClaims record {
     string|int|boolean|string[]? value;
 };
 
-// AccessToken type with all fields properly optional
 type AccessToken record {
-    AccessTokenClaims[]? claims?;
-    string[]? scopes?;
+    string? tokenType;
+    AccessTokenClaims[]? claims;
+};
+
+type RefreshToken record {
+    AccessTokenClaims[]? claims;
+};
+
+type OperationPaths record {
+    string? op;
+    string[]? paths;
 };
 
 type Event record {
@@ -52,12 +62,14 @@ type Event record {
     Organization? organization;
     UserStore? userStore;
     AccessToken? accessToken;
+    RefreshToken? refreshToken;
 };
 
 type RequestBody record {
     string? requestId;
     ActionType? actionType;
     Event? event;
+    OperationPaths[]? allowedOperations;
 };
 
 // Operation Types for Response
