@@ -11,9 +11,19 @@ public enum ActionStatus {
     ERROR
 }
 
-// Main response type - simplified
-public type ApiResponse record {|
-    *http:Ok|*http:BadRequest|*http:InternalServerError;
+// Response records - separate for each status
+public type SuccessResponse record {|
+    readonly & http:Ok;
+    ResponseBody body;
+|};
+
+public type ErrorResponse record {|
+    readonly & http:BadRequest;
+    ResponseBody body;
+|};
+
+public type InternalErrorResponse record {|
+    readonly & http:InternalServerError;
     ResponseBody body;
 |};
 
