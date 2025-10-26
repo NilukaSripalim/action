@@ -9,16 +9,6 @@ public enum ActionStatus {
     ERROR
 }
 
-// Simple response type
-public type ResponseBody record {
-    ActionStatus actionStatus;
-    Operations[] operations?;
-    string failureReason?;
-    string failureDescription?;
-    string errorMessage?;
-    string errorDescription?;
-};
-
 // Request types
 public type RequestBody record {
     string requestId?;
