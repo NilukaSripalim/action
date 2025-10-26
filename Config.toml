@@ -13,6 +13,9 @@ expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma"
 # JWKS endpoint for JWT signature validation
 jwksUrl = "https://dev.api.asgardeo.io/t/nilukadevspecialusecases/oauth2/jwks"
 
+# For HS256 testing - use any secret key
+TEST_JWT_SECRET = "your-test-secret-key-here"
+
 # Example values for different scenarios:
 
 # 1. Current Testing Configuration:
