@@ -1,20 +1,31 @@
 import ballerina/http;
 
+// Enums - Define these FIRST
+enum ActionTypes {
+    PRE_ISSUE_ACCESS_TOKEN
+}
+
+enum ActionStatus {
+    SUCCESS,
+    FAILED,
+    ERROR
+}
+
 // Response types
 type SuccessResponseOk record {|
     *http:Ok;
     SuccessResponseBody body;
 |};
 
-type SuccessResponseBody SuccessResponse|FailedResponse;
+type SuccessResponseBody SuccessResponse|FailedResponse|ErrorResponse;
 
 type SuccessResponse record {
-    SUCCESS actionStatus;
+    ActionStatus actionStatus;
     Operations[] operations;
 };
 
 type FailedResponse record {
-    FAILED actionStatus;
+    ActionStatus actionStatus;
     string failureReason;
     string failureDescription;
 };
@@ -30,17 +41,17 @@ type ErrorResponseBadRequest record {|
 |};
 
 type ErrorResponse record {
-    ERROR actionStatus?;
-    string errorMessage?;
-    string errorDescription?;
+    ActionStatus actionStatus;
+    string errorMessage;
+    string errorDescription;
 };
 
 // Request types
 type RequestBody record {
     string requestId?;
-    PRE_ISSUE_ACCESS_TOKEN actionType?;
+    ActionTypes actionType?;
     Event event?;
-    AllowedOperations allowedOperations?;
+    AllowedOperations[] allowedOperations?;
 };
 
 type Event record {
@@ -120,24 +131,9 @@ type OperationValue record {
     string value;
 };
 
-type AllowedOperations (addOperation|replaceOperation|removeOperation)[];
+type AllowedOperations AllowedOperation[];
 
 type AllowedOperation record {
-    "add"|"replace"|"remove" op?;
+    string op?;
     string[] paths?;
 };
-
-type addOperation AllowedOperation;
-type replaceOperation AllowedOperation;
-type removeOperation AllowedOperation;
-
-// Enums
-enum ActionTypes {
-    PRE_ISSUE_ACCESS_TOKEN
-}
-
-enum ActionStatus {
-    SUCCESS,
-    FAILED,
-    ERROR
-}
