@@ -124,7 +124,7 @@ service /action on new http:Listener(9092) {
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post .(RequestBody payload) returns http:Response|error {
+    resource function post .(RequestBody payload) returns json|error {
         if enabledDebugLog {
             log:printInfo("📥 Pre-Issue Access Token action triggered");
             log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
@@ -135,12 +135,9 @@ service /action on new http:Listener(9092) {
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
-                statusCode: 400,
-                body: {
-                    actionStatus: ERROR,
-                    errorMessage: "Invalid action type",
-                    errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
-                }
+                actionStatus: ERROR,
+                errorMessage: "Invalid action type",
+                errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
             };
         }
         
@@ -148,24 +145,18 @@ service /action on new http:Listener(9092) {
         string|error validatedJWT = extractAndValidateJWT(payload);
         if validatedJWT is error {
             return {
-                statusCode: 400,
-                body: {
-                    actionStatus: FAILED,
-                    failureReason: "invalid_token",
-                    failureDescription: validatedJWT.message()
-                }
+                actionStatus: FAILED,
+                failureReason: "invalid_token",
+                failureDescription: validatedJWT.message()
             };
         }
         
         string|error userId = extractUserIdFromValidatedJWT(validatedJWT);
         if userId is error {
             return {
-                statusCode: 400,
-                body: {
-                    actionStatus: FAILED,
-                    failureReason: "invalid_token",
-                    failureDescription: userId.message()
-                }
+                actionStatus: FAILED,
+                failureReason: "invalid_token",
+                failureDescription: userId.message()
             };
         }
         
@@ -176,20 +167,17 @@ service /action on new http:Listener(9092) {
         
         // Return success response with userId claim
         return {
-            statusCode: 200,
-            body: {
-                actionStatus: SUCCESS,
-                operations: [
-                    {
-                        op: "add",
-                        path: "/accessToken/claims/-",
-                        value: {
-                            name: "userId",
-                            value: userId
-                        }
+            actionStatus: SUCCESS,
+            operations: [
+                {
+                    op: "add",
+                    path: "/accessToken/claims/-",
+                    value: {
+                        name: "userId",
+                        value: userId
                     }
-                ]
-            }
+                }
+            ]
         };
     }
 }
