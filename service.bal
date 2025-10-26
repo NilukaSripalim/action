@@ -5,7 +5,10 @@ import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
-// Test certificate for RS256 validation - using proper constant string syntax
+// Make issuer configurable for testing
+configurable string JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token";
+
+// Test certificate for RS256 validation
 const string TEST_CERTIFICATE = "-----BEGIN CERTIFICATE-----\n" +
 "MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV\n" +
 "bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD\n" +
@@ -49,6 +52,7 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
     string? algorithm = jwtHeader.alg;
     if enabledDebugLog {
         log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm.toString()}`);
+        log:printInfo(string `🔐 Expected Issuer: ${JWT_ISSUER}`);
     }
     
     // 4. Validate based on algorithm - Now using RS256 with certificate
@@ -64,7 +68,7 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
         check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
         
         jwt:ValidatorConfig validatorConfig = {
-            issuer: "wso2",
+            issuer: JWT_ISSUER,  // ✅ Now configurable
             clockSkew: 60,
             signatureConfig: {
                 certFile: tempCertPath
@@ -111,6 +115,12 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     anydata? usernameClaim = jwtPayload.get("username");
     if usernameClaim is string {
         return usernameClaim;
+    }
+    
+    // Try email claim
+    anydata? emailClaim = jwtPayload.get("email");
+    if emailClaim is string {
+        return emailClaim;
     }
     
     return error("User ID not found in validated JWT claims");
@@ -162,6 +172,7 @@ service /action on new http:Listener(9092) {
             log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
             log:printInfo(string `Action Type: ${payload.actionType.toString()}`);
             log:printInfo(string `Grant Type: ${payload.event?.request?.grantType ?: "unknown"}`);
+            log:printInfo(string `Configured Issuer: ${JWT_ISSUER}`);
         }
         
         // Validate action type
