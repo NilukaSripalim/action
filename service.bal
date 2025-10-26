@@ -1,6 +1,7 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/log;
+import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
@@ -81,7 +82,7 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
             issuer: "wso2",
             clockSkew: 60,
             signatureConfig: {
-                certFile: tempCertPath  // ✅ FIXED: Use certFile instead of cert
+                certFile: tempCertPath
             }
         };
         validationResult = jwt:validate(jwtToken, validatorConfig);
@@ -174,7 +175,7 @@ isolated service /action on new http:Listener(9092) {
             }
             
             // Validate action type
-            if payload.actionType == "PRE_ISSUE_ACCESS_TOKEN" {
+            if payload.actionType == PRE_ISSUE_ACCESS_TOKEN {
                 
                 // ✅ Validate JWT signature first
                 string validatedJWT = check extractAndValidateJWT(payload);
@@ -190,7 +191,7 @@ isolated service /action on new http:Listener(9092) {
                 // Return success response with userId claim
                 return {
                     body: {
-                        actionStatus: "SUCCESS",
+                        actionStatus: SUCCESS,
                         operations: [
                             {
                                 op: "add",
@@ -207,7 +208,7 @@ isolated service /action on new http:Listener(9092) {
             
             return {
                 body: {
-                    actionStatus: "ERROR",
+                    actionStatus: ERROR,
                     errorMessage: "Invalid action type",
                     errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
                 }
@@ -226,7 +227,7 @@ isolated service /action on new http:Listener(9092) {
                err.message().includes("Unsupported JWT algorithm") {
                 return {
                     body: {
-                        actionStatus: "FAILED",
+                        actionStatus: FAILED,
                         failureReason: "invalid_token",
                         failureDescription: err.message()
                     }
@@ -235,7 +236,7 @@ isolated service /action on new http:Listener(9092) {
             
             return {
                 body: {
-                    actionStatus: "ERROR",
+                    actionStatus: ERROR,
                     errorMessage: msg,
                     errorDescription: err.message()
                 }
