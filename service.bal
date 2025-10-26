@@ -4,12 +4,15 @@ import ballerina/log;
 
 configurable boolean enabledDebugLog = true;
 
+// For HS256 testing - use a shared secret
+configurable string TEST_JWT_SECRET = "your-test-secret-key-here";
+
 // Test certificate for RS256 validation
 const string TEST_CERTIFICATE = 
 `-----BEGIN CERTIFICATE-----
 MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV
 bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD
-VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbktub3duMRAwDgYDVQQDEwdVbmtub3du
+VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbmtub3duMRAwDgYDVQQDEwdVbmtub3du
 MB4XDTIzMDMxNTA3MzIzN1oXDTM0MDIyNTA3MzIzN1owbDEQMA4GA1UEBhMHVW5r
 bm93bjEQMA4GA1UECBMHVW5rbm93bjEQMA4GA1UEBxMHVW5rbm93bjEQMA4GA1UE
 ChMHVW5rbm93bjEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCC
@@ -27,9 +30,6 @@ wNa5WvVh3DRs2kgyN/tFvt3enI4TpOEu3bBSbxh7d7E/HUJOz9ScM9cE3sjlNtwK
 AzQEMAZD+Vc1cF8GAgURydWPVicaiIAr4kkmUMex4rt4b97Wd7PuZbp32O+iFKMG
 u2ahQ9ernk2xYni6ZPXn/u0CwaZJ3jSALzyQ
 -----END CERTIFICATE-----`;
-
-// For HS256 testing - use a shared secret
-configurable string TEST_JWT_SECRET = "your-test-secret-key-here";
 
 // Extract JWT from additionalParams and validate signature
 isolated function extractAndValidateJWT(RequestBody payload) returns string|error {
@@ -49,9 +49,9 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
     // 3. First, decode header to detect algorithm
     [jwt:Header, jwt:Payload] [jwtHeader, _] = check jwt:decode(jwtToken);
     
-    string algorithm = jwtHeader.alg;
+    string? algorithm = jwtHeader.alg;
     if enabledDebugLog {
-        log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm}`);
+        log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm.toString()}`);
     }
     
     // 4. Validate based on algorithm
@@ -73,16 +73,20 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
         if enabledDebugLog {
             log:printInfo("🔄 Using RS256 validation with certificate");
         }
+        // Write certificate to temporary file for validation
+        string tempCertPath = "/tmp/test_cert.pem";
+        check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
+        
         jwt:ValidatorConfig validatorConfig = {
             issuer: "wso2",
             clockSkew: 60,
             signatureConfig: {
-                cert: TEST_CERTIFICATE
+                certFile: tempCertPath  // ✅ FIXED: Use certFile instead of cert
             }
         };
         validationResult = jwt:validate(jwtToken, validatorConfig);
     } else {
-        return error("Unsupported JWT algorithm: " + algorithm);
+        return error("Unsupported JWT algorithm: " + algorithm.toString());
     }
     
     if validationResult is error {
@@ -170,7 +174,7 @@ isolated service /action on new http:Listener(9092) {
             }
             
             // Validate action type
-            if payload.actionType == PRE_ISSUE_ACCESS_TOKEN {
+            if payload.actionType == "PRE_ISSUE_ACCESS_TOKEN" {
                 
                 // ✅ Validate JWT signature first
                 string validatedJWT = check extractAndValidateJWT(payload);
@@ -184,9 +188,9 @@ isolated service /action on new http:Listener(9092) {
                 }
                 
                 // Return success response with userId claim
-                return <SuccessResponseOk>{
-                    body: <SuccessResponse>{
-                        actionStatus: SUCCESS,
+                return {
+                    body: {
+                        actionStatus: "SUCCESS",
                         operations: [
                             {
                                 op: "add",
@@ -201,9 +205,9 @@ isolated service /action on new http:Listener(9092) {
                 };
             }
             
-            return <ErrorResponseBadRequest>{
+            return {
                 body: {
-                    actionStatus: ERROR,
+                    actionStatus: "ERROR",
                     errorMessage: "Invalid action type",
                     errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
                 }
@@ -220,18 +224,18 @@ isolated service /action on new http:Listener(9092) {
                err.message().includes("JWT parameter") ||
                err.message().includes("User ID not found") ||
                err.message().includes("Unsupported JWT algorithm") {
-                return <ErrorResponseBadRequest>{
+                return {
                     body: {
-                        actionStatus: FAILED,
+                        actionStatus: "FAILED",
                         failureReason: "invalid_token",
                         failureDescription: err.message()
                     }
                 };
             }
             
-            return <ErrorResponseInternalServerError>{
+            return {
                 body: {
-                    actionStatus: ERROR,
+                    actionStatus: "ERROR",
                     errorMessage: msg,
                     errorDescription: err.message()
                 }
