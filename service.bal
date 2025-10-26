@@ -5,33 +5,13 @@ import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
-// Make issuer configurable for testing
+// Make issuer configurable
 configurable string JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token";
 
-// Test certificate for RS256 validation
-const string TEST_CERTIFICATE = "-----BEGIN CERTIFICATE-----\n" +
-"MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV\n" +
-"bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD\n" +
-"VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbmtub3duMRAwDgYDVQQDEwdVbmtub3du\n" +
-"MB4XDTIzMDMxNTA3MzIzN1oXDTM0MDIyNTA3MzIzN1owbDEQMA4GA1UEBhMHVW5r\n" +
-"bm93bjEQMA4GA1UECBMHVW5rbm93bjEQMA4GA1UEBxMHVW5rbm93bjEQMA4GA1UE\n" +
-"ChMHVW5rbm93bjEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCC\n" +
-"ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJBeF8561LSr2VICeyAsWIjr\n" +
-"3n9XGGPUFjKBouTckwDTKNxjWPKvDfgoJ860/YDru1MSDV712um0UsLtCO15z3kt\n" +
-"fUvxIITzq/nUnbqup3PGVIKkTbRO1NgR4D0/WchGwUzD96chgXiEW8fVZvUhao1e\n" +
-"Osz1C9py9z3gDTio1DG0VAG/ULW2jUlrD+ptXpe28wZedSZCA7RyBlIXGCCVF2Nm\n" +
-"P0X04o0ye8R4EDa25N2r1DqdOXS22VHVcBLpTkVsV5di6xozdwCXCqGt+g//DZn+\n" +
-"njRGnM5Z/f1ScPcBebZDWp1A1MGhKa/PZ60Q/tMf0Qihkeji02+bydZPH0398tcC\n" +
-"AwEAAaMhMB8wHQYDVR0OBBYEFC9yJi59DKWax/Hl4GajqCQTxvqKMA0GCSqGSIb3\n" +
-"DQEBCwUAA4IBAQB11iZYR6iq8QRIvLM5RFvjf/UUjjzn4W0rWXCytM9UZsOD+NmE\n" +
-"3DW8rfI0mjJwJsokL6xyIIpb733fMsxC646+FKO7mnOiVcpMR63dBQ5SDjY95RGM\n" +
-"ET0UaEBPji8fKbeebJXpLJt5tlqPFAc9M7xPIXKvfw+/9LlCaQJvFLOF3+Tws/xq\n" +
-"wNa5WvVh3DRs2kgyN/tFvt3enI4TpOEu3bBSbxh7d7E/HUJOz9ScM9cE3sjlNtwK\n" +
-"AzQEMAZD+Vc1cF8GAgURydWPVicaiIAr4kkmUMex4rt4b97Wd7PuZbp32O+iFKMG\n" +
-"u2ahQ9ernk2xYni6ZPXn/u0CwaZJ3jSALzyQ\n" +
-"-----END CERTIFICATE-----";
+// JWKS endpoint for Asgardeo
+configurable string JWKS_ENDPOINT = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks";
 
-// Extract JWT from additionalParams and validate signature with certificate
+// Extract JWT from additionalParams and validate signature with JWKS
 function extractAndValidateJWT(RequestBody payload) returns string|error {
     // 1. Extract JWT from additionalParams
     RequestParams[]? requestParams = payload.event?.request?.additionalParams;
@@ -47,20 +27,18 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
         log:printInfo(string `🔐 Expected Issuer: ${JWT_ISSUER}`);
     }
     
-    // 3. Always use RS256 validation with certificate (no algorithm detection)
+    // 3. Use JWKS validation for Asgardeo tokens
     if enabledDebugLog {
-        log:printInfo("🔄 Using RS256 validation with certificate");
+        log:printInfo("🔄 Using JWKS validation for Asgardeo token");
     }
-    
-    // Write certificate to temporary file for validation
-    string tempCertPath = "/tmp/test_cert.pem";
-    check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
     
     jwt:ValidatorConfig validatorConfig = {
         issuer: JWT_ISSUER,
         clockSkew: 60,
         signatureConfig: {
-            certFile: tempCertPath
+            jwksConfig: {
+                url: JWKS_ENDPOINT
+            }
         }
     };
     
@@ -86,16 +64,16 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
         log:printInfo(string `📋 JWT Payload: ${jwtPayload.toJsonString()}`);
     }
     
-    // Try to get userId from JWT claims
-    anydata? userIdClaim = jwtPayload.get("userId");
-    if userIdClaim is string {
-        return userIdClaim;
-    }
-    
-    // Alternative: use "sub" claim if userId not present
+    // Try to get userId from JWT claims - using 'sub' claim for Asgardeo
     anydata? subClaim = jwtPayload.get("sub");
     if subClaim is string {
         return subClaim;
+    }
+    
+    // Alternative: check for other user identifiers
+    anydata? userIdClaim = jwtPayload.get("userId");
+    if userIdClaim is string {
+        return userIdClaim;
     }
     
     // Try username claim
