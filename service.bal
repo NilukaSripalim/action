@@ -1,7 +1,6 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/log;
-import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
