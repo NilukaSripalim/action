@@ -4,12 +4,12 @@ import ballerina/log;
 
 configurable boolean enabledDebugLog = true;
 
-// Test certificate for JWT validation (inline for testing)
+// Test certificate for RS256 validation
 const string TEST_CERTIFICATE = 
 `-----BEGIN CERTIFICATE-----
 MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV
 bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD
-VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbmtub3duMRAwDgYDVQQDEwdVbmtub3du
+VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbktub3duMRAwDgYDVQQDEwdVbmtub3du
 MB4XDTIzMDMxNTA3MzIzN1oXDTM0MDIyNTA3MzIzN1owbDEQMA4GA1UEBhMHVW5r
 bm93bjEQMA4GA1UECBMHVW5rbm93bjEQMA4GA1UEBxMHVW5rbm93bjEQMA4GA1UE
 ChMHVW5rbm93bjEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCC
@@ -28,6 +28,9 @@ AzQEMAZD+Vc1cF8GAgURydWPVicaiIAr4kkmUMex4rt4b97Wd7PuZbp32O+iFKMG
 u2ahQ9ernk2xYni6ZPXn/u0CwaZJ3jSALzyQ
 -----END CERTIFICATE-----`;
 
+// For HS256 testing - use a shared secret
+configurable string TEST_JWT_SECRET = "your-test-secret-key-here";
+
 // Extract JWT from additionalParams and validate signature
 isolated function extractAndValidateJWT(RequestBody payload) returns string|error {
     // 1. Extract JWT from additionalParams
@@ -40,19 +43,48 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
     string jwtToken = check extractJWT(requestParams);
     
     if enabledDebugLog {
-        log:printInfo(string `🔐 Extracted JWT token: ${jwtToken.substring(0, 50)}...`);
+        log:printInfo(string `🔐 Extracted JWT token: ${jwtToken}`);
     }
     
-    // 3. Validate JWT signature using test certificate
-    jwt:ValidatorConfig validatorConfig = {
-        issuer: "wso2",  // Adjust issuer as needed for your test
-        clockSkew: 60,
-        signatureConfig: {
-            cert: TEST_CERTIFICATE  // ✅ Using inline test certificate
-        }
-    };
+    // 3. First, decode header to detect algorithm
+    [jwt:Header, jwt:Payload] [jwtHeader, _] = check jwt:decode(jwtToken);
     
-    jwt:Payload|error validationResult = jwt:validate(jwtToken, validatorConfig);
+    string algorithm = jwtHeader.alg;
+    if enabledDebugLog {
+        log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm}`);
+    }
+    
+    // 4. Validate based on algorithm
+    jwt:Payload|error validationResult;
+    
+    if algorithm == "HS256" {
+        if enabledDebugLog {
+            log:printInfo("🔄 Using HS256 validation with shared secret");
+        }
+        jwt:ValidatorConfig validatorConfig = {
+            issuer: "wso2",
+            clockSkew: 60,
+            signatureConfig: {
+                secret: TEST_JWT_SECRET
+            }
+        };
+        validationResult = jwt:validate(jwtToken, validatorConfig);
+    } else if algorithm == "RS256" {
+        if enabledDebugLog {
+            log:printInfo("🔄 Using RS256 validation with certificate");
+        }
+        jwt:ValidatorConfig validatorConfig = {
+            issuer: "wso2",
+            clockSkew: 60,
+            signatureConfig: {
+                cert: TEST_CERTIFICATE
+            }
+        };
+        validationResult = jwt:validate(jwtToken, validatorConfig);
+    } else {
+        return error("Unsupported JWT algorithm: " + algorithm);
+    }
+    
     if validationResult is error {
         return error("JWT signature validation failed: " + validationResult.message());
     }
@@ -73,7 +105,7 @@ isolated function extractUserIdFromValidatedJWT(string jwtToken) returns string|
         log:printInfo(string `📋 JWT Payload: ${jwtPayload.toJsonString()}`);
     }
     
-    // Try to get userId from JWT claims
+    // Try to get userId from JWT claims - using "userId" claim (matches your test JWT)
     anydata? userIdClaim = jwtPayload.get("userId");
     if userIdClaim is string {
         return userIdClaim;
@@ -85,18 +117,7 @@ isolated function extractUserIdFromValidatedJWT(string jwtToken) returns string|
         return subClaim;
     }
     
-    // Try other common user identifier claims
-    anydata? emailClaim = jwtPayload.get("email");
-    if emailClaim is string {
-        return emailClaim;
-    }
-    
-    anydata? usernameClaim = jwtPayload.get("username");
-    if usernameClaim is string {
-        return usernameClaim;
-    }
-    
-    return error("User ID not found in validated JWT claims. Available claims: " + jwtPayload.toJsonString());
+    return error("User ID not found in validated JWT claims");
 }
 
 // Extract JWT from request parameters
@@ -197,7 +218,8 @@ isolated service /action on new http:Listener(9092) {
             // Return FAILED status for JWT validation failures
             if err.message().includes("JWT signature validation failed") || 
                err.message().includes("JWT parameter") ||
-               err.message().includes("User ID not found") {
+               err.message().includes("User ID not found") ||
+               err.message().includes("Unsupported JWT algorithm") {
                 return <ErrorResponseBadRequest>{
                     body: {
                         actionStatus: FAILED,
