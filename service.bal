@@ -1,39 +1,14 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/log;
-import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
 // For HS256 testing - use a shared secret
 configurable string TEST_JWT_SECRET = "your-test-secret-key-here";
 
-// Test certificate for RS256 validation
-const string TEST_CERTIFICATE = 
-`-----BEGIN CERTIFICATE-----
-MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV
-bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD
-VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbmtub3duMRAwDgYDVQQDEwdVbmtub3du
-MB4XDTIzMDMxNTA3MzIzN1oXDTM0MDIyNTA3MzIzN1owbDEQMA4GA1UEBhMHVW5r
-bm93bjEQMA4GA1UECBMHVW5rbm93bjEQMA4GA1UEBxMHVW5rbm93bjEQMA4GA1UE
-ChMHVW5rbm93bjEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCC
-ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJBeF8561LSr2VICeyAsWIjr
-3n9XGGPUFjKBouTckwDTKNxjWPKvDfgoJ860/YDru1MSDV712um0UsLtCO15z3kt
-fUvxIITzq/nUnbqup3PGVIKkTbRO1NgR4D0/WchGwUzD96chgXiEW8fVZvUhao1e
-Osz1C9py9z3gDTio1DG0VAG/ULW2jUlrD+ptXpe28wZedSZCA7RyBlIXGCCVF2Nm
-P0X04o0ye8R4EDa25N2r1DqdOXS22VHVcBLpTkVsV5di6xozdwCXCqGt+g//DZn+
-njRGnM5Z/f1ScPcBebZDWp1A1MGhKa/PZ60Q/tMf0Qihkeji02+bydZPH0398tcC
-AwEAAaMhMB8wHQYDVR0OBBYEFC9yJi59DKWax/Hl4GajqCQTxvqKMA0GCSqGSIb3
-DQEBCwUAA4IBAQB11iZYR6iq8QRIvLM5RFvjf/UUjjzn4W0rWXCytM9UZsOD+NmE
-3DW8rfI0mjJwJsokL6xyIIpb733fMsxC646+FKO7mnOiVcpMR63dBQ5SDjY95RGM
-ET0UaEBPji8fKbeebJXpLJt5tlqPFAc9M7xPIXKvfw+/9LlCaQJvFLOF3+Tws/xq
-wNa5WvVh3DRs2kgyN/tFvt3enI4TpOEu3bBSbxh7d7E/HUJOz9ScM9cE3sjlNtwK
-AzQEMAZD+Vc1cF8GAgURydWPVicaiIAr4kkmUMex4rt4b97Wd7PuZbp32O+iFKMG
-u2ahQ9ernk2xYni6ZPXn/u0CwaZJ3jSALzyQ
------END CERTIFICATE-----`;
-
 // Extract JWT from additionalParams and validate signature
-isolated function extractAndValidateJWT(RequestBody payload) returns string|error {
+function extractAndValidateJWT(RequestBody payload) returns string|error {
     // 1. Extract JWT from additionalParams
     RequestParams[]? requestParams = payload.event?.request?.additionalParams;
     if requestParams is () {
@@ -55,7 +30,7 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
         log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm.toString()}`);
     }
     
-    // 4. Validate based on algorithm
+    // 4. Validate based on algorithm - For testing, we'll use HS256 with shared secret
     jwt:Payload|error validationResult;
     
     if algorithm == "HS256" {
@@ -67,22 +42,6 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
             clockSkew: 60,
             signatureConfig: {
                 secret: TEST_JWT_SECRET
-            }
-        };
-        validationResult = jwt:validate(jwtToken, validatorConfig);
-    } else if algorithm == "RS256" {
-        if enabledDebugLog {
-            log:printInfo("🔄 Using RS256 validation with certificate");
-        }
-        // Write certificate to temporary file for validation
-        string tempCertPath = "/tmp/test_cert.pem";
-        check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
-        
-        jwt:ValidatorConfig validatorConfig = {
-            issuer: "wso2",
-            clockSkew: 60,
-            signatureConfig: {
-                certFile: tempCertPath
             }
         };
         validationResult = jwt:validate(jwtToken, validatorConfig);
@@ -102,7 +61,7 @@ isolated function extractAndValidateJWT(RequestBody payload) returns string|erro
 }
 
 // Extract userID from validated JWT payload
-isolated function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
+function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     // Decode the validated JWT to get payload
     [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
     
@@ -126,7 +85,7 @@ isolated function extractUserIdFromValidatedJWT(string jwtToken) returns string|
 }
 
 // Extract JWT from request parameters
-isolated function extractJWT(RequestParams[] reqParams) returns string|error {
+function extractJWT(RequestParams[] reqParams) returns string|error {
     map<string> params = {};
     foreach RequestParams param in reqParams {
         string[]? value = param.value;
@@ -152,10 +111,10 @@ isolated function extractJWT(RequestParams[] reqParams) returns string|error {
         allowHeaders: ["*"]
     }
 }
-isolated service /action on new http:Listener(9092) {
+service /action on new http:Listener(9092) {
 
     // Health check endpoint
-    isolated resource function get health() returns json {
+    resource function get health() returns json {
         return {
             status: "UP",
             serviceName: "asgardeo-pre-issue-action",
@@ -165,82 +124,72 @@ isolated service /action on new http:Listener(9092) {
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    isolated resource function post .(RequestBody payload) returns SuccessResponseOk|ErrorResponseBadRequest|ErrorResponseInternalServerError|error {
-        do {
-            if enabledDebugLog {
-                log:printInfo("📥 Pre-Issue Access Token action triggered");
-                log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
-                log:printInfo(string `Action Type: ${payload.actionType.toString()}`);
-                log:printInfo(string `Grant Type: ${payload.event?.request?.grantType ?: "unknown"}`);
-            }
-            
-            // Validate action type
-            if payload.actionType == PRE_ISSUE_ACCESS_TOKEN {
-                
-                // ✅ Validate JWT signature first
-                string validatedJWT = check extractAndValidateJWT(payload);
-                
-                // ✅ Extract userId from validated JWT
-                string userId = check extractUserIdFromValidatedJWT(validatedJWT);
-                
-                if enabledDebugLog {
-                    log:printInfo(string `✅ Extracted userId from validated JWT: ${userId}`);
-                    log:printInfo("🔐 JWT Signature Validated: YES");
-                }
-                
-                // Return success response with userId claim
-                return {
-                    body: {
-                        actionStatus: SUCCESS,
-                        operations: [
-                            {
-                                op: "add",
-                                path: "/accessToken/claims/-",
-                                value: {
-                                    name: "userId",
-                                    value: userId
-                                }
-                            }
-                        ]
-                    }
-                };
-            }
-            
+    resource function post .(RequestBody payload) returns ApiResponse|error {
+        if enabledDebugLog {
+            log:printInfo("📥 Pre-Issue Access Token action triggered");
+            log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
+            log:printInfo(string `Action Type: ${payload.actionType.toString()}`);
+            log:printInfo(string `Grant Type: ${payload.event?.request?.grantType ?: "unknown"}`);
+        }
+        
+        // Validate action type
+        if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
+                statusCode: 400,
                 body: {
                     actionStatus: ERROR,
                     errorMessage: "Invalid action type",
                     errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
                 }
             };
-            
-        } on fail error err {
-            string msg = "Something went wrong while processing Pre-Issue Access Token action";
-            if enabledDebugLog {
-                log:printError(string `💥 ${msg}: ${err.message()}`);
-            }
-            
-            // Return FAILED status for JWT validation failures
-            if err.message().includes("JWT signature validation failed") || 
-               err.message().includes("JWT parameter") ||
-               err.message().includes("User ID not found") ||
-               err.message().includes("Unsupported JWT algorithm") {
-                return {
-                    body: {
-                        actionStatus: FAILED,
-                        failureReason: "invalid_token",
-                        failureDescription: err.message()
-                    }
-                };
-            }
-            
+        }
+        
+        // Validate JWT signature and extract userId
+        string|error validatedJWT = extractAndValidateJWT(payload);
+        if validatedJWT is error {
             return {
+                statusCode: 400,
                 body: {
-                    actionStatus: ERROR,
-                    errorMessage: msg,
-                    errorDescription: err.message()
+                    actionStatus: FAILED,
+                    failureReason: "invalid_token",
+                    failureDescription: validatedJWT.message()
                 }
             };
         }
+        
+        string|error userId = extractUserIdFromValidatedJWT(validatedJWT);
+        if userId is error {
+            return {
+                statusCode: 400,
+                body: {
+                    actionStatus: FAILED,
+                    failureReason: "invalid_token",
+                    failureDescription: userId.message()
+                }
+            };
+        }
+        
+        if enabledDebugLog {
+            log:printInfo(string `✅ Extracted userId from validated JWT: ${userId}`);
+            log:printInfo("🔐 JWT Signature Validated: YES");
+        }
+        
+        // Return success response with userId claim
+        return {
+            statusCode: 200,
+            body: {
+                actionStatus: SUCCESS,
+                operations: [
+                    {
+                        op: "add",
+                        path: "/accessToken/claims/-",
+                        value: {
+                            name: "userId",
+                            value: userId
+                        }
+                    }
+                ]
+            }
+        };
     }
 }
