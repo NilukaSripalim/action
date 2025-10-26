@@ -1,60 +1,56 @@
 import ballerina/http;
 
 // Enums - Define these FIRST
-enum ActionTypes {
+public enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
 }
 
-enum ActionStatus {
+public enum ActionStatus {
     SUCCESS,
     FAILED,
     ERROR
 }
 
-// Response types
-type SuccessResponseOk record {|
+// Response records
+public type SuccessResponseOk record {|
     *http:Ok;
     SuccessResponseBody body;
 |};
 
-type SuccessResponseBody SuccessResponse|FailedResponse|ErrorResponse;
-
-type SuccessResponse record {
+public type SuccessResponseBody record {
     ActionStatus actionStatus;
-    Operations[] operations;
+    Operations[] operations?;
+    string failureReason?;
+    string failureDescription?;
+    string errorMessage?;
+    string errorDescription?;
 };
 
-type FailedResponse record {
-    ActionStatus actionStatus;
-    string failureReason;
-    string failureDescription;
-};
-
-type ErrorResponseInternalServerError record {|
+public type ErrorResponseInternalServerError record {|
     *http:InternalServerError;
     ErrorResponse body;
 |};
 
-type ErrorResponseBadRequest record {|
+public type ErrorResponseBadRequest record {|
     *http:BadRequest;
     ErrorResponse body;
 |};
 
-type ErrorResponse record {
+public type ErrorResponse record {
     ActionStatus actionStatus;
     string errorMessage;
     string errorDescription;
 };
 
 // Request types
-type RequestBody record {
+public type RequestBody record {
     string requestId?;
     ActionTypes actionType?;
     Event event?;
-    AllowedOperations[] allowedOperations?;
+    AllowedOperation[] allowedOperations?;
 };
 
-type Event record {
+public type Event record {
     Request request?;
     Tenant tenant?;
     User user?;
@@ -64,7 +60,7 @@ type Event record {
     RefreshToken refreshToken?;
 };
 
-type Request record {
+public type Request record {
     string grantType?;
     string clientId?;
     string[] scopes?;
@@ -72,68 +68,66 @@ type Request record {
     RequestParams[] additionalParams?;
 };
 
-type RequestParams record {
+public type RequestParams record {
     string name?;
     string[] value?;
 };
 
-type RequestHeaders record {
+public type RequestHeaders record {
     string name?;
     string[] value?;
 };
 
-type User record {
+public type User record {
     string id?;
     Organization organization?;
 };
 
-type Organization record {
+public type Organization record {
     string id?;
     string name?;
     string orgHandle?;
     int depth?;
 };
 
-type Tenant record {
+public type Tenant record {
     string id?;
     string name?;
 };
 
-type UserStore record {
+public type UserStore record {
     string id?;
     string name?;
 };
 
-type AccessToken record {
+public type AccessToken record {
     string tokenType?;
     AccessTokenClaims[] claims?;
     string[] scopes?;
 };
 
-type RefreshToken record {
+public type RefreshToken record {
     AccessTokenClaims[] claims?;
 };
 
-type AccessTokenClaims record {
+public type AccessTokenClaims record {
     string name?;
     string|int|boolean|string[] value?;
 };
 
 // Operation types
-type Operations record {
+public type Operations record {
     string op;
     string path;
     OperationValue value;
 };
 
-type OperationValue record {
+public type OperationValue record {
     string name;
     string value;
 };
 
-type AllowedOperations AllowedOperation[];
-
-type AllowedOperation record {
+public type AllowedOperation record {
     string op?;
     string[] paths?;
 };
