@@ -44,40 +44,27 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
     
     if enabledDebugLog {
         log:printInfo(string `🔐 Extracted JWT token: ${jwtToken}`);
-    }
-    
-    // 3. First, decode header to detect algorithm
-    [jwt:Header, jwt:Payload] [jwtHeader, _] = check jwt:decode(jwtToken);
-    
-    string? algorithm = jwtHeader.alg;
-    if enabledDebugLog {
-        log:printInfo(string `🔐 Detected JWT Algorithm: ${algorithm.toString()}`);
         log:printInfo(string `🔐 Expected Issuer: ${JWT_ISSUER}`);
     }
     
-    // 4. Validate based on algorithm - Now using RS256 with certificate
-    jwt:Payload|error validationResult;
-    
-    if algorithm == "RS256" {
-        if enabledDebugLog {
-            log:printInfo("🔄 Using RS256 validation with certificate");
-        }
-        
-        // Write certificate to temporary file for validation
-        string tempCertPath = "/tmp/test_cert.pem";
-        check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
-        
-        jwt:ValidatorConfig validatorConfig = {
-            issuer: JWT_ISSUER,  // ✅ Now configurable
-            clockSkew: 60,
-            signatureConfig: {
-                certFile: tempCertPath
-            }
-        };
-        validationResult = jwt:validate(jwtToken, validatorConfig);
-    } else {
-        return error("Unsupported JWT algorithm: " + algorithm.toString() + ". Expected RS256");
+    // 3. Always use RS256 validation with certificate (no algorithm detection)
+    if enabledDebugLog {
+        log:printInfo("🔄 Using RS256 validation with certificate");
     }
+    
+    // Write certificate to temporary file for validation
+    string tempCertPath = "/tmp/test_cert.pem";
+    check io:fileWriteString(tempCertPath, TEST_CERTIFICATE);
+    
+    jwt:ValidatorConfig validatorConfig = {
+        issuer: JWT_ISSUER,
+        clockSkew: 60,
+        signatureConfig: {
+            certFile: tempCertPath
+        }
+    };
+    
+    jwt:Payload|error validationResult = jwt:validate(jwtToken, validatorConfig);
     
     if validationResult is error {
         return error("JWT signature validation failed: " + validationResult.message());
