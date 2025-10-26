@@ -18,6 +18,8 @@ TEST_JWT_SECRET = "your-test-secret-key-here"
 
 JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token"
 
+JWKS_ENDPOINT: "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks"
+
 # Example values for different scenarios:
 
 # 1. Current Testing Configuration:
