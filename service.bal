@@ -21,16 +21,7 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
     // 2. Extract JWT string from parameters
     string jwtToken = check extractJWT(requestParams);
     
-    if enabledDebugLog {
-        log:printInfo(string `🔐 Extracted JWT token: ${jwtToken}`);
-        log:printInfo(string `🔐 Expected Issuer: ${JWT_ISSUER}`);
-    }
-    
     // 3. Use JWKS validation for Asgardeo tokens
-    if enabledDebugLog {
-        log:printInfo("🔄 Using JWKS validation for Asgardeo token");
-    }
-    
     jwt:ValidatorConfig validatorConfig = {
         issuer: JWT_ISSUER,
         clockSkew: 60,
@@ -47,10 +38,6 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
         return error("JWT signature validation failed: " + validationResult.message());
     }
     
-    if enabledDebugLog {
-        log:printInfo("✅ JWT signature validation successful");
-    }
-    
     return jwtToken;
 }
 
@@ -58,10 +45,6 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
 function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     // Decode the validated JWT to get payload
     [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
-    
-    if enabledDebugLog {
-        log:printInfo(string `📋 JWT Payload: ${jwtPayload.toJsonString()}`);
-    }
     
     // Try to get userId from JWT claims - using 'sub' claim for Asgardeo
     anydata? subClaim = jwtPayload.get("sub");
@@ -131,14 +114,6 @@ service /action on new http:Listener(9092) {
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
     resource function post .(RequestBody payload) returns json|error {
-        if enabledDebugLog {
-            log:printInfo("📥 Pre-Issue Access Token action triggered");
-            log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
-            log:printInfo(string `Action Type: ${payload.actionType.toString()}`);
-            log:printInfo(string `Grant Type: ${payload.event?.request?.grantType ?: "unknown"}`);
-            log:printInfo(string `Configured Issuer: ${JWT_ISSUER}`);
-        }
-        
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
@@ -165,11 +140,6 @@ service /action on new http:Listener(9092) {
                 failureReason: "invalid_token",
                 failureDescription: userId.message()
             };
-        }
-        
-        if enabledDebugLog {
-            log:printInfo(string `✅ Extracted userId from validated JWT: ${userId}`);
-            log:printInfo("🔐 JWT Signature Validated: YES");
         }
         
         // Return success response with userId claim
