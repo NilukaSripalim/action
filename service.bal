@@ -5,9 +5,8 @@ import ballerina/io;
 
 configurable boolean enabledDebugLog = true;
 
-// Test certificate for RS256 validation
-const string TEST_CERTIFICATE = 
-`-----BEGIN CERTIFICATE-----
+// Test certificate for RS256 validation - using heredoc syntax
+const string TEST_CERTIFICATE = string`-----BEGIN CERTIFICATE-----
 MIIDdzCCAl+gAwIBAgIEVHJsoDANBgkqhkiG9w0BAQsFADBsMRAwDgYDVQQGEwdV
 bmtub3duMRAwDgYDVQQIEwdVbmtub3duMRAwDgYDVQQHEwdVbmtub3duMRAwDgYD
 VQQKEwdVbmtub3duMRAwDgYDVQQLEwdVbmtub3duMRAwDgYDVQQDEwdVbmtub3du
