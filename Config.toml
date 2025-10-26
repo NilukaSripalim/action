@@ -11,14 +11,14 @@ expectedIssuer = "wso2"
 expectedAudience = "DNrwSQcWhrfAImyLp0m_CjigT9Ma"
 
 # JWKS endpoint for JWT signature validation
-jwksUrl = "https://dev.api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks"
+JWKS_ENDPOINT: "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks"
 
 # For HS256 testing - use any secret key
 TEST_JWT_SECRET = "your-test-secret-key-here"
 
 JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token"
 
-JWKS_ENDPOINT: "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks"
+
 
 # Example values for different scenarios:
 
