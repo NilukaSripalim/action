@@ -11,22 +11,7 @@ public enum ActionStatus {
     ERROR
 }
 
-// Response records - separate for each status
-public type SuccessResponse record {|
-    readonly & http:Ok;
-    ResponseBody body;
-|};
-
-public type ErrorResponse record {|
-    readonly & http:BadRequest;
-    ResponseBody body;
-|};
-
-public type InternalErrorResponse record {|
-    readonly & http:InternalServerError;
-    ResponseBody body;
-|};
-
+// Simple response type
 public type ResponseBody record {
     ActionStatus actionStatus;
     Operations[] operations?;
