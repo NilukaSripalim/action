@@ -124,7 +124,7 @@ service /action on new http:Listener(9092) {
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post .(RequestBody payload) returns ApiResponse|error {
+    resource function post .(RequestBody payload) returns http:Response|error {
         if enabledDebugLog {
             log:printInfo("📥 Pre-Issue Access Token action triggered");
             log:printInfo(string `Request ID: ${payload.requestId ?: "unknown"}`);
