@@ -1,6 +1,6 @@
 import ballerina/http;
 
-// Enums - Define these FIRST
+// Enums
 public enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
 }
@@ -11,35 +11,19 @@ public enum ActionStatus {
     ERROR
 }
 
-// Response records
-public type SuccessResponseOk record {|
-    *http:Ok;
-    SuccessResponseBody body;
+// Main response type - simplified
+public type ApiResponse record {|
+    *http:Ok|*http:BadRequest|*http:InternalServerError;
+    ResponseBody body;
 |};
 
-public type SuccessResponseBody record {
+public type ResponseBody record {
     ActionStatus actionStatus;
     Operations[] operations?;
     string failureReason?;
     string failureDescription?;
     string errorMessage?;
     string errorDescription?;
-};
-
-public type ErrorResponseInternalServerError record {|
-    *http:InternalServerError;
-    ErrorResponse body;
-|};
-
-public type ErrorResponseBadRequest record {|
-    *http:BadRequest;
-    ErrorResponse body;
-|};
-
-public type ErrorResponse record {
-    ActionStatus actionStatus;
-    string errorMessage;
-    string errorDescription;
 };
 
 // Request types
