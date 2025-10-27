@@ -57,17 +57,13 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
             return error("MFA not found in authentication methods. Found: " + amr.toString());
         }
     } else {
-        // Log what claims are actually available for debugging
-        if enabledDebugLog {
-            log:printInfo("Available claims in ID Token: " + idTokenPayload.toJsonString());
-        }
         return error("Authentication methods (amr) claim missing in ID Token");
     }
     
     return;
 }
 
-// Helper function to check for MFA methods in array - UPDATED for Asgardeo
+// Helper function to check for MFA methods in array - FIXED for Ballerina
 function checkMFAMethods(string[] amr) returns boolean {
     foreach string method in amr {
         // Check for Asgardeo MFA authenticator names
@@ -79,14 +75,43 @@ function checkMFAMethods(string[] amr) returns boolean {
            method == "backup-code-authenticator" ||
            method == "email-otp" ||
            method == "sms-otp" ||
-           method == "totp" {
+           method == "totp" ||
+           method == "mfa" {
             return true;
         }
         
-        // Also check for standard MFA indicators
-        if method.contains("otp") || method.contains("mfa") || method.contains("authenticator") {
+        // Check for OTP indicators using string indexing
+        if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
             return true;
         }
+    }
+    return false;
+}
+
+// Helper function to check if string contains substring
+function hasSubstring(string str, string substring) returns boolean {
+    int subLength = substring.length();
+    int strLength = str.length();
+    
+    if subLength > strLength {
+        return false;
+    }
+    
+    int i = 0;
+    while i <= strLength - subLength {
+        boolean found = true;
+        int j = 0;
+        while j < subLength {
+            if str[i + j] != substring[j] {
+                found = false;
+                break;
+            }
+            j += 1;
+        }
+        if found {
+            return true;
+        }
+        i += 1;
     }
     return false;
 }
