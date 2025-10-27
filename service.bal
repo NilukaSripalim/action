@@ -57,17 +57,34 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
             return error("MFA not found in authentication methods. Found: " + amr.toString());
         }
     } else {
+        // Log what claims are actually available for debugging
+        if enabledDebugLog {
+            log:printInfo("Available claims in ID Token: " + idTokenPayload.toJsonString());
+        }
         return error("Authentication methods (amr) claim missing in ID Token");
     }
     
     return;
 }
 
-// Helper function to check for MFA methods in array
+// Helper function to check for MFA methods in array - UPDATED for Asgardeo
 function checkMFAMethods(string[] amr) returns boolean {
     foreach string method in amr {
-        if method == "mfa" || method == "otp" || method == "totp" || 
-           method == "sms" || method == "email" || method == "push" {
+        // Check for Asgardeo MFA authenticator names
+        if method == "email-otp-authenticator" || 
+           method == "sms-otp-authenticator" || 
+           method == "totp-authenticator" ||
+           method == "BasicAuthenticator" || // This might be the first factor
+           method == "FIDOAuthenticator" ||
+           method == "backup-code-authenticator" ||
+           method == "email-otp" ||
+           method == "sms-otp" ||
+           method == "totp" {
+            return true;
+        }
+        
+        // Also check for standard MFA indicators
+        if method.contains("otp") || method.contains("mfa") || method.contains("authenticator") {
             return true;
         }
     }
