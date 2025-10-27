@@ -12,7 +12,7 @@ public enum ActionStatus {
 // Request types
 public type RequestBody record {
     string requestId?;
-    ActionTypes actionType?;
+    ActionTypes actionType;
     Event event?;
     AllowedOperation[] allowedOperations?;
 };
@@ -82,19 +82,35 @@ public type AccessTokenClaims record {
     string|int|boolean|string[] value?;
 };
 
-// Operation types
+// Operation types - UPDATED to match your response structure
 public type Operations record {
     string op;
     string path;
-    OperationValue value;
-};
-
-public type OperationValue record {
-    string name;
-    string value;
+    record {|
+        string name;
+        string|boolean|record {} value;
+    |} value;
 };
 
 public type AllowedOperation record {
     string op?;
     string[] paths?;
 };
+
+// Response types - ADD these for your response structure
+public type SuccessResponse record {|
+    ActionStatus actionStatus;
+    Operations[] operations;
+|};
+
+public type FailedResponse record {|
+    ActionStatus actionStatus;
+    string failureReason;
+    string failureDescription;
+|};
+
+public type ErrorResponse record {|
+    ActionStatus actionStatus;
+    string errorMessage;
+    string errorDescription;
+|};
