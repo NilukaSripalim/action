@@ -82,7 +82,7 @@ public type AccessTokenClaims record {
     string|int|boolean|string[] value?;
 };
 
-// Operation types - UPDATED to match your response structure
+// Operation types
 public type Operations record {
     string op;
     string path;
@@ -97,7 +97,7 @@ public type AllowedOperation record {
     string[] paths?;
 };
 
-// Response types - ADD these for your response structure
+// Response types
 public type SuccessResponse record {|
     ActionStatus actionStatus;
     Operations[] operations;
