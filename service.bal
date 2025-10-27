@@ -17,15 +17,6 @@ function validateTokensAndMFA(RequestBody payload) returns string|error {
     string idToken = check extractToken(requestParams, "id_token");
     string accessToken = check extractToken(requestParams, "access_token");
     
-    // First, let's decode the ID token to see what claims it actually has
-    [jwt:Header, jwt:Payload] [_, idTokenPayload] = check jwt:decode(idToken);
-    
-    // Check if amr claim exists and what it contains
-    anydata? amrClaim = idTokenPayload.get("amr");
-    if amrClaim is () {
-        return error("ID Token missing amr claim. Available claims: " + getClaimNames(idTokenPayload));
-    }
-    
     // Validate ID Token signature and MFA claims
     check validateIDTokenAndMFA(idToken);
     
@@ -33,51 +24,6 @@ function validateTokensAndMFA(RequestBody payload) returns string|error {
     string validatedAccessToken = check validateAccessToken(accessToken);
     
     return validatedAccessToken;
-}
-
-// Helper function to get claim names for debugging
-function getClaimNames(jwt:Payload payload) returns string {
-    string[] claimNames = [];
-    // Get all available claim names
-    anydata amr = payload.get("amr");
-    anydata sub = payload.get("sub");
-    anydata iss = payload.get("iss");
-    anydata aud = payload.get("aud");
-    anydata exp = payload.get("exp");
-    anydata iat = payload.get("iat");
-    anydata nbf = payload.get("nbf");
-    anydata nonce = payload.get("nonce");
-    anydata sid = payload.get("sid");
-    anydata azp = payload.get("azp");
-    anydata auth_time = payload.get("auth_time");
-    anydata at_hash = payload.get("at_hash");
-    anydata c_hash = payload.get("c_hash");
-    anydata acr = payload.get("acr");
-    anydata org_id = payload.get("org_id");
-    anydata org_name = payload.get("org_name");
-    anydata org_handle = payload.get("org_handle");
-    anydata username = payload.get("username");
-    
-    if amr is string[] { claimNames.push("amr"); }
-    if sub is string { claimNames.push("sub"); }
-    if iss is string { claimNames.push("iss"); }
-    if aud is string { claimNames.push("aud"); }
-    if exp is int { claimNames.push("exp"); }
-    if iat is int { claimNames.push("iat"); }
-    if nbf is int { claimNames.push("nbf"); }
-    if nonce is string { claimNames.push("nonce"); }
-    if sid is string { claimNames.push("sid"); }
-    if azp is string { claimNames.push("azp"); }
-    if auth_time is int { claimNames.push("auth_time"); }
-    if at_hash is string { claimNames.push("at_hash"); }
-    if c_hash is string { claimNames.push("c_hash"); }
-    if acr is string { claimNames.push("acr"); }
-    if org_id is string { claimNames.push("org_id"); }
-    if org_name is string { claimNames.push("org_name"); }
-    if org_handle is string { claimNames.push("org_handle"); }
-    if username is string { claimNames.push("username"); }
-    
-    return claimNames.toString();
 }
 
 // Validate ID Token signature and MFA claims
@@ -101,7 +47,7 @@ function validateIDTokenAndMFA(string idToken) returns error? {
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token - SIMPLIFIED
+// Validate MFA claims in ID Token - UPDATED to handle different data types
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
@@ -112,35 +58,82 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
         if hasMFA {
             return;
         } else {
-            return error("No MFA methods found in amr: " + amr.toString());
+            return error("No MFA methods found in amr array: " + amr.toString());
         }
+    } else if amr is string {
+        // Handle case where amr is a single string instead of array
+        boolean hasMFA = checkMFAMethod(amr);
+        if hasMFA {
+            return;
+        } else {
+            return error("No MFA methods found in amr string: " + amr);
+        }
+    } else if amr is () {
+        // Check for alternative MFA claims if amr is missing
+        return check checkAlternativeMFAClaims(idTokenPayload);
     } else {
-        return error("amr claim is not a string array or is missing");
+        return error("amr claim has unexpected type: " + amr.toString());
     }
+}
+
+// Check for alternative MFA claims
+function checkAlternativeMFAClaims(jwt:Payload idTokenPayload) returns error? {
+    // Check acr (Authentication Context Class Reference)
+    anydata? acr = idTokenPayload.get("acr");
+    if acr is string {
+        if hasSubstring(acr, "mfa") || hasSubstring(acr, "2") {
+            return;
+        }
+    }
+    
+    // Check for custom MFA claims
+    anydata? mfaCompleted = idTokenPayload.get("mfa_authenticated");
+    if mfaCompleted is boolean && mfaCompleted {
+        return;
+    }
+    
+    // Check auth_time and other indicators
+    anydata? authTime = idTokenPayload.get("auth_time");
+    if authTime is int {
+        // If we have auth_time but no amr, we might need to be more lenient
+        // or check other application-specific claims
+        return error("MFA validation inconclusive - no amr claim found");
+    }
+    
+    return error("No MFA indicators found in ID token claims");
 }
 
 // Helper function to check for MFA methods in array
 function checkMFAMethods(string[] amr) returns boolean {
     foreach string method in amr {
-        // Check for Asgardeo MFA authenticator names
-        if method == "email-otp-authenticator" || 
-           method == "sms-otp-authenticator" || 
-           method == "totp-authenticator" ||
-           method == "BasicAuthenticator" ||
-           method == "FIDOAuthenticator" ||
-           method == "backup-code-authenticator" ||
-           method == "email-otp" ||
-           method == "sms-otp" ||
-           method == "totp" ||
-           method == "mfa" {
-            return true;
-        }
-        
-        // Check for OTP indicators
-        if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
+        if checkMFAMethod(method) {
             return true;
         }
     }
+    return false;
+}
+
+// Helper function to check a single MFA method
+function checkMFAMethod(string method) returns boolean {
+    // Check for Asgardeo MFA authenticator names
+    if method == "email-otp-authenticator" || 
+       method == "sms-otp-authenticator" || 
+       method == "totp-authenticator" ||
+       method == "BasicAuthenticator" ||
+       method == "FIDOAuthenticator" ||
+       method == "backup-code-authenticator" ||
+       method == "email-otp" ||
+       method == "sms-otp" ||
+       method == "totp" ||
+       method == "mfa" {
+        return true;
+    }
+    
+    // Check for OTP indicators
+    if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
+        return true;
+    }
+    
     return false;
 }
 
