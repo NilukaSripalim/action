@@ -135,14 +135,17 @@ function validateAccessToken(string accessToken, string jwtIssuer, string jwksEn
     return accessToken;
 }
 
-// Extract any token from parameters
+// Extract any token from parameters - FIXED
 function extractToken(RequestParams[] reqParams, string tokenName) returns string|error {
     map<string> params = {};
     foreach RequestParams param in reqParams {
         string[]? value = param.value;
         string? name = param.name;
-        if name is string && value is string[] && value.length() > 0 {
-            params[name] = value[0];
+        if name is string && value is string[] {
+            // Check if array has at least one element before accessing [0]
+            if value.length() > 0 {
+                params[name] = value[0];
+            }
         }
     }
     
@@ -182,14 +185,19 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     return error("User ID not found in validated JWT claims");
 }
 
-// Helper functions to extract dynamic parameters
+// Helper functions to extract dynamic parameters - FIXED
 function extractJWTIssuer(RequestBody payload) returns string|error {
     // Option 1: Extract from custom headers in additionalHeaders
     RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
     if additionalHeaders is RequestHeaders[] {
         foreach RequestHeaders header in additionalHeaders {
-            if header.name == "x-jwt-issuer" && header.value is string[] && header.value.length() > 0 {
-                return header.value[0];
+            string? headerName = header.name;
+            string[]? headerValue = header.value;
+            if headerName == "x-jwt-issuer" && headerValue is string[] {
+                // Check if array has at least one element before accessing [0]
+                if headerValue.length() > 0 {
+                    return headerValue[0];
+                }
             }
         }
     }
@@ -198,8 +206,13 @@ function extractJWTIssuer(RequestBody payload) returns string|error {
     RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
     if additionalParams is RequestParams[] {
         foreach RequestParams param in additionalParams {
-            if param.name == "jwt_issuer" && param.value is string[] && param.value.length() > 0 {
-                return param.value[0];
+            string? paramName = param.name;
+            string[]? paramValue = param.value;
+            if paramName == "jwt_issuer" && paramValue is string[] {
+                // Check if array has at least one element before accessing [0]
+                if paramValue.length() > 0 {
+                    return paramValue[0];
+                }
             }
         }
     }
@@ -212,8 +225,13 @@ function extractJWKSEndpoint(RequestBody payload) returns string|error {
     RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
     if additionalHeaders is RequestHeaders[] {
         foreach RequestHeaders header in additionalHeaders {
-            if header.name == "x-jwks-endpoint" && header.value is string[] && header.value.length() > 0 {
-                return header.value[0];
+            string? headerName = header.name;
+            string[]? headerValue = header.value;
+            if headerName == "x-jwks-endpoint" && headerValue is string[] {
+                // Check if array has at least one element before accessing [0]
+                if headerValue.length() > 0 {
+                    return headerValue[0];
+                }
             }
         }
     }
@@ -222,8 +240,13 @@ function extractJWKSEndpoint(RequestBody payload) returns string|error {
     RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
     if additionalParams is RequestParams[] {
         foreach RequestParams param in additionalParams {
-            if param.name == "jwks_endpoint" && param.value is string[] && param.value.length() > 0 {
-                return param.value[0];
+            string? paramName = param.name;
+            string[]? paramValue = param.value;
+            if paramName == "jwks_endpoint" && paramValue is string[] {
+                // Check if array has at least one element before accessing [0]
+                if paramValue.length() > 0 {
+                    return paramValue[0];
+                }
             }
         }
     }
