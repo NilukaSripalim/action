@@ -47,60 +47,45 @@ function validateIDTokenAndMFA(string idToken) returns error? {
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token - UPDATED to handle different data types
+// Validate MFA claims in ID Token - SIMPLIFIED and ROBUST
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
-    // Check amr (Authentication Methods References)
+    // Check amr (Authentication Methods References) - use more flexible approach
     anydata? amr = idTokenPayload.get("amr");
     
-    if amr is string[] {
-        // If we have amr array, check if it contains any MFA indicators
-        boolean hasMFA = checkMFAMethods(amr);
+    // Try to convert to string array regardless of the exact type
+    string[]|error amrArray = convertToAmrArray(amr);
+    
+    if amrArray is string[] {
+        // Check if it contains MFA methods
+        boolean hasMFA = checkMFAMethods(amrArray);
         if hasMFA {
             return;
         } else {
-            return error("No MFA methods found in amr array: " + amr.toString());
+            return error("No MFA methods found in amr: " + amrArray.toString());
         }
-    } else if amr is string {
-        // Handle case where amr is a single string instead of array
-        boolean hasMFA = checkMFAMethod(amr);
-        if hasMFA {
-            return;
-        } else {
-            return error("No MFA methods found in amr string: " + amr);
-        }
-    } else if amr is () {
-        // Check for alternative MFA claims if amr is missing
-        return check checkAlternativeMFAClaims(idTokenPayload);
     } else {
-        return error("amr claim has unexpected type: " + amr.toString());
+        return error("Unable to process amr claim: " + amr.toString());
     }
 }
 
-// Check for alternative MFA claims
-function checkAlternativeMFAClaims(jwt:Payload idTokenPayload) returns error? {
-    // Check acr (Authentication Context Class Reference)
-    anydata? acr = idTokenPayload.get("acr");
-    if acr is string {
-        if hasSubstring(acr, "mfa") || hasSubstring(acr, "2") {
-            return;
+// Convert any amr data to string array
+function convertToAmrArray(anydata? amr) returns string[]|error {
+    if amr is string[] {
+        return amr;
+    } else if amr is json[] {
+        // Handle case where it might be a json array
+        string[] result = [];
+        foreach var item in amr {
+            if item is string {
+                result.push(item);
+            }
         }
+        return result;
+    } else if amr is () {
+        return error("amr claim is missing");
+    } else {
+        return error("Unsupported amr type: " + amr.toString());
     }
-    
-    // Check for custom MFA claims
-    anydata? mfaCompleted = idTokenPayload.get("mfa_authenticated");
-    if mfaCompleted is boolean && mfaCompleted {
-        return;
-    }
-    
-    // Check auth_time and other indicators
-    anydata? authTime = idTokenPayload.get("auth_time");
-    if authTime is int {
-        // If we have auth_time but no amr, we might need to be more lenient
-        // or check other application-specific claims
-        return error("MFA validation inconclusive - no amr claim found");
-    }
-    
-    return error("No MFA indicators found in ID token claims");
 }
 
 // Helper function to check for MFA methods in array
