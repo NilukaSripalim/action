@@ -79,7 +79,7 @@ public type RefreshToken record {
 
 public type AccessTokenClaims record {
     string name?;
-    string|int|boolean|string[] value?;
+    string|int|boolean|string[]|TokenValidationRecord|MFAValidationRecord value?;
 };
 
 // Operation types
@@ -88,7 +88,7 @@ public type Operations record {
     string path;
     record {|
         string name;
-        string|boolean|record {} value;
+        string|TokenValidationRecord|MFAValidationRecord value;
     |} value;
 };
 
@@ -113,4 +113,18 @@ public type ErrorResponse record {|
     ActionStatus actionStatus;
     string errorMessage;
     string errorDescription;
+|};
+
+// Validation record types
+public type TokenValidationRecord record {|
+    string signature;
+    string method;
+    string issuer;
+    string timestamp;
+|};
+
+public type MFAValidationRecord record {|
+    string status;
+    string method;
+    string timestamp;
 |};
