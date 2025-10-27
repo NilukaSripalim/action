@@ -3,26 +3,32 @@ import ballerina/jwt;
 import ballerina/time;
 
 configurable boolean enabledDebugLog = true;
-
-// Make issuer configurable
 configurable string JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token";
-
-// JWKS endpoint for Asgardeo
 configurable string JWKS_ENDPOINT = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks";
 
-// Extract JWT from additionalParams and validate signature with JWKS
-function extractAndValidateJWT(RequestBody payload) returns string|error {
-    // 1. Extract JWT from additionalParams
+// Extract and validate both tokens with MFA
+function validateTokensAndMFA(RequestBody payload) returns string|error {
     RequestParams[]? requestParams = payload.event?.request?.additionalParams;
     if requestParams is () {
-        return error("JWT parameter missing in additionalParams");
+        return error("Token parameters missing in additionalParams");
     }
     
-    // 2. Extract JWT string from parameters
-    string jwtToken = check extractJWT(requestParams);
+    // Extract both tokens
+    string idToken = check extractToken(requestParams, "id_token");
+    string accessToken = check extractToken(requestParams, "access_token");
     
-    // 3. Use JWKS validation for Asgardeo tokens
-    jwt:ValidatorConfig validatorConfig = {
+    // Validate ID Token signature and MFA claims
+    check validateIDTokenAndMFA(idToken);
+    
+    // Validate access token signature
+    string validatedAccessToken = check validateAccessToken(accessToken);
+    
+    return validatedAccessToken;
+}
+
+// Validate ID Token signature and MFA claims
+function validateIDTokenAndMFA(string idToken) returns error? {
+    jwt:ValidatorConfig idTokenValidator = {
         issuer: JWT_ISSUER,
         clockSkew: 60,
         signatureConfig: {
@@ -32,49 +38,54 @@ function extractAndValidateJWT(RequestBody payload) returns string|error {
         }
     };
     
-    jwt:Payload|error validationResult = jwt:validate(jwtToken, validatorConfig);
-    
-    if validationResult is error {
-        return error("JWT signature validation failed: " + validationResult.message());
+    jwt:Payload|error idTokenValidation = jwt:validate(idToken, idTokenValidator);
+    if idTokenValidation is error {
+        return error("ID Token signature validation failed: " + idTokenValidation.message());
     }
     
-    return jwtToken;
+    // Check MFA claims in ID Token
+    return check validateMFAClaims(idTokenValidation);
 }
 
-// Extract userID from validated JWT payload
-function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
-    // Decode the validated JWT to get payload
-    [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
-    
-    // Try to get userId from JWT claims - using 'sub' claim for Asgardeo
-    anydata? subClaim = jwtPayload.get("sub");
-    if subClaim is string {
-        return subClaim;
+// Validate MFA claims in ID Token
+function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
+    // Check amr (Authentication Methods References)
+    anydata? amr = idTokenPayload.get("amr");
+    if amr is string[] {
+        boolean hasMFA = amr.includes("mfa") || amr.includes("otp") || amr.includes("totp") || 
+                         amr.includes("sms") || amr.includes("email") || amr.includes("push");
+        if !hasMFA {
+            return error("MFA not found in authentication methods. Found: " + amr.toString());
+        }
+    } else {
+        return error("Authentication methods (amr) claim missing in ID Token");
     }
     
-    // Alternative: check for other user identifiers
-    anydata? userIdClaim = jwtPayload.get("userId");
-    if userIdClaim is string {
-        return userIdClaim;
-    }
-    
-    // Try username claim
-    anydata? usernameClaim = jwtPayload.get("username");
-    if usernameClaim is string {
-        return usernameClaim;
-    }
-    
-    // Try email claim
-    anydata? emailClaim = jwtPayload.get("email");
-    if emailClaim is string {
-        return emailClaim;
-    }
-    
-    return error("User ID not found in validated JWT claims");
+    return;
 }
 
-// Extract JWT from request parameters
-function extractJWT(RequestParams[] reqParams) returns string|error {
+// Validate access token signature
+function validateAccessToken(string accessToken) returns string|error {
+    jwt:ValidatorConfig accessTokenValidator = {
+        issuer: JWT_ISSUER,
+        clockSkew: 60,
+        signatureConfig: {
+            jwksConfig: {
+                url: JWKS_ENDPOINT
+            }
+        }
+    };
+    
+    jwt:Payload|error accessTokenValidation = jwt:validate(accessToken, accessTokenValidator);
+    if accessTokenValidation is error {
+        return error("Access Token signature validation failed: " + accessTokenValidation.message());
+    }
+    
+    return accessToken;
+}
+
+// Extract any token from parameters
+function extractToken(RequestParams[] reqParams, string tokenName) returns string|error {
     map<string> params = {};
     foreach RequestParams param in reqParams {
         string[]? value = param.value;
@@ -84,12 +95,40 @@ function extractJWT(RequestParams[] reqParams) returns string|error {
         }
     }
     
-    string? jwt = params["jwt"];
-    if jwt is string {
-        return jwt;
+    string? token = params[tokenName];
+    if token is string {
+        return token;
     }
     
-    return error("JWT parameter not found in request parameters");
+    return error(tokenName + " parameter not found in request parameters");
+}
+
+// Extract userID from validated access token payload
+function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
+    [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
+    
+    // Try to get userId from various claims
+    anydata? subClaim = jwtPayload.get("sub");
+    if subClaim is string {
+        return subClaim;
+    }
+    
+    anydata? userIdClaim = jwtPayload.get("userId");
+    if userIdClaim is string {
+        return userIdClaim;
+    }
+    
+    anydata? usernameClaim = jwtPayload.get("username");
+    if usernameClaim is string {
+        return usernameClaim;
+    }
+    
+    anydata? emailClaim = jwtPayload.get("email");
+    if emailClaim is string {
+        return emailClaim;
+    }
+    
+    return error("User ID not found in validated JWT claims");
 }
 
 @http:ServiceConfig {
@@ -106,14 +145,14 @@ service /action on new http:Listener(9092) {
     resource function get health() returns json {
         return {
             status: "UP",
-            serviceName: "asgardeo-pre-issue-action",
+            serviceName: "asgardeo-mfa-validation",
             version: "1.0.0",
-            description: "Pre-Issue Access Token Action - JWT Validated UserID Injection"
+            description: "Pre-Issue Access Token Action with MFA Validation"
         };
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post .(RequestBody payload) returns json|error {
+    resource function post .(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
@@ -123,17 +162,17 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Validate JWT signature and extract userId
-        string|error validatedJWT = extractAndValidateJWT(payload);
-        if validatedJWT is error {
+        // Validate both tokens and MFA
+        string|error validatedAccessToken = validateTokensAndMFA(payload);
+        if validatedAccessToken is error {
             return {
                 actionStatus: FAILED,
                 failureReason: "invalid_token",
-                failureDescription: validatedJWT.message()
+                failureDescription: validatedAccessToken.message()
             };
         }
         
-        string|error userId = extractUserIdFromValidatedJWT(validatedJWT);
+        string|error userId = extractUserIdFromValidatedJWT(validatedAccessToken);
         if userId is error {
             return {
                 actionStatus: FAILED,
@@ -142,11 +181,11 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Get current timestamp in ISO 8601 format
+        // Get current timestamp
         time:Utc currentTime = time:utcNow();
         string timestamp = time:utcToString(currentTime);
         
-        // Return success response with userId claim AND signature validation status with timestamp
+        // Return success response with structured validation info
         return {
             actionStatus: SUCCESS,
             operations: [
@@ -154,32 +193,33 @@ service /action on new http:Listener(9092) {
                     op: "add",
                     path: "/accessToken/claims/-",
                     value: {
-                        name: "userId",
+                        name: "userId", 
                         value: userId
                     }
                 },
                 {
-                    op: "add", 
+                    op: "add",
                     path: "/accessToken/claims/-",
                     value: {
-                        name: "jwtSignatureValidated",
-                        value: true
+                        name: "tokenValidation",
+                        value: {
+                            signature: "valid",
+                            method: "JWKS_RS256", 
+                            issuer: JWT_ISSUER,
+                            timestamp: timestamp
+                        }
                     }
                 },
                 {
                     op: "add",
                     path: "/accessToken/claims/-",
                     value: {
-                        name: "jwtValidationMethod",
-                        value: "JWKS_RS256"
-                    }
-                },
-                {
-                    op: "add",
-                    path: "/accessToken/claims/-",
-                    value: {
-                        name: "jwtValidationTimestamp",
-                        value: timestamp
+                        name: "mfaValidation", 
+                        value: {
+                            status: "success",
+                            method: "ID_TOKEN_AMR_VALIDATION",
+                            timestamp: timestamp
+                        }
                     }
                 }
             ]
