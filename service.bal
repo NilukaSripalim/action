@@ -3,11 +3,9 @@ import ballerina/jwt;
 import ballerina/time;
 
 configurable boolean enabledDebugLog = true;
-configurable string JWT_ISSUER = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/token";
-configurable string JWKS_ENDPOINT = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks";
 
 // Extract and validate both tokens with MFA
-function validateTokensAndMFA(RequestBody payload) returns string|error {
+function validateTokensAndMFA(RequestBody payload, string jwtIssuer, string jwksEndpoint) returns string|error {
     RequestParams[]? requestParams = payload.event?.request?.additionalParams;
     if requestParams is () {
         return error("Token parameters missing in additionalParams");
@@ -18,22 +16,22 @@ function validateTokensAndMFA(RequestBody payload) returns string|error {
     string accessToken = check extractToken(requestParams, "access_token");
     
     // Validate ID Token signature and MFA claims
-    check validateIDTokenAndMFA(idToken);
+    check validateIDTokenAndMFA(idToken, jwtIssuer, jwksEndpoint);
     
     // Validate access token signature
-    string validatedAccessToken = check validateAccessToken(accessToken);
+    string validatedAccessToken = check validateAccessToken(accessToken, jwtIssuer, jwksEndpoint);
     
     return validatedAccessToken;
 }
 
 // Validate ID Token signature and MFA claims
-function validateIDTokenAndMFA(string idToken) returns error? {
+function validateIDTokenAndMFA(string idToken, string jwtIssuer, string jwksEndpoint) returns error? {
     jwt:ValidatorConfig idTokenValidator = {
-        issuer: JWT_ISSUER,
+        issuer: jwtIssuer,
         clockSkew: 60,
         signatureConfig: {
             jwksConfig: {
-                url: JWKS_ENDPOINT
+                url: jwksEndpoint
             }
         }
     };
@@ -47,78 +45,45 @@ function validateIDTokenAndMFA(string idToken) returns error? {
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token - SIMPLIFIED and ROBUST
+// Validate MFA claims in ID Token
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
-    // Check amr (Authentication Methods References) - use more flexible approach
+    // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
     
-    // Try to convert to string array regardless of the exact type
-    string[]|error amrArray = convertToAmrArray(amr);
-    
-    if amrArray is string[] {
-        // Check if it contains MFA methods
-        boolean hasMFA = checkMFAMethods(amrArray);
+    if amr is string[] {
+        boolean hasMFA = checkMFAMethods(amr);
         if hasMFA {
             return;
         } else {
-            return error("No MFA methods found in amr: " + amrArray.toString());
+            return error("No MFA methods found in amr: " + amr.toString());
         }
     } else {
-        return error("Unable to process amr claim: " + amr.toString());
-    }
-}
-
-// Convert any amr data to string array
-function convertToAmrArray(anydata? amr) returns string[]|error {
-    if amr is string[] {
-        return amr;
-    } else if amr is json[] {
-        // Handle case where it might be a json array
-        string[] result = [];
-        foreach var item in amr {
-            if item is string {
-                result.push(item);
-            }
-        }
-        return result;
-    } else if amr is () {
-        return error("amr claim is missing");
-    } else {
-        return error("Unsupported amr type: " + amr.toString());
+        return error("amr claim is not a string array or is missing");
     }
 }
 
 // Helper function to check for MFA methods in array
 function checkMFAMethods(string[] amr) returns boolean {
     foreach string method in amr {
-        if checkMFAMethod(method) {
+        // Check for Asgardeo MFA authenticator names
+        if method == "email-otp-authenticator" || 
+           method == "sms-otp-authenticator" || 
+           method == "totp-authenticator" ||
+           method == "BasicAuthenticator" ||
+           method == "FIDOAuthenticator" ||
+           method == "backup-code-authenticator" ||
+           method == "email-otp" ||
+           method == "sms-otp" ||
+           method == "totp" ||
+           method == "mfa" {
+            return true;
+        }
+        
+        // Check for OTP indicators
+        if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
             return true;
         }
     }
-    return false;
-}
-
-// Helper function to check a single MFA method
-function checkMFAMethod(string method) returns boolean {
-    // Check for Asgardeo MFA authenticator names
-    if method == "email-otp-authenticator" || 
-       method == "sms-otp-authenticator" || 
-       method == "totp-authenticator" ||
-       method == "BasicAuthenticator" ||
-       method == "FIDOAuthenticator" ||
-       method == "backup-code-authenticator" ||
-       method == "email-otp" ||
-       method == "sms-otp" ||
-       method == "totp" ||
-       method == "mfa" {
-        return true;
-    }
-    
-    // Check for OTP indicators
-    if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
-        return true;
-    }
-    
     return false;
 }
 
@@ -151,13 +116,13 @@ function hasSubstring(string str, string substring) returns boolean {
 }
 
 // Validate access token signature
-function validateAccessToken(string accessToken) returns string|error {
+function validateAccessToken(string accessToken, string jwtIssuer, string jwksEndpoint) returns string|error {
     jwt:ValidatorConfig accessTokenValidator = {
-        issuer: JWT_ISSUER,
+        issuer: jwtIssuer,
         clockSkew: 60,
         signatureConfig: {
             jwksConfig: {
-                url: JWKS_ENDPOINT
+                url: jwksEndpoint
             }
         }
     };
@@ -217,6 +182,55 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     return error("User ID not found in validated JWT claims");
 }
 
+// Helper functions to extract dynamic parameters
+function extractJWTIssuer(RequestBody payload) returns string|error {
+    // Option 1: Extract from custom headers in additionalHeaders
+    RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
+    if additionalHeaders is RequestHeaders[] {
+        foreach RequestHeaders header in additionalHeaders {
+            if header.name == "x-jwt-issuer" && header.value is string[] && header.value.length() > 0 {
+                return header.value[0];
+            }
+        }
+    }
+    
+    // Option 2: Extract from additionalParams
+    RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
+    if additionalParams is RequestParams[] {
+        foreach RequestParams param in additionalParams {
+            if param.name == "jwt_issuer" && param.value is string[] && param.value.length() > 0 {
+                return param.value[0];
+            }
+        }
+    }
+    
+    return error("JWT issuer not provided in request");
+}
+
+function extractJWKSEndpoint(RequestBody payload) returns string|error {
+    // Option 1: Extract from custom headers in additionalHeaders
+    RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
+    if additionalHeaders is RequestHeaders[] {
+        foreach RequestHeaders header in additionalHeaders {
+            if header.name == "x-jwks-endpoint" && header.value is string[] && header.value.length() > 0 {
+                return header.value[0];
+            }
+        }
+    }
+    
+    // Option 2: Extract from additionalParams
+    RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
+    if additionalParams is RequestParams[] {
+        foreach RequestParams param in additionalParams {
+            if param.name == "jwks_endpoint" && param.value is string[] && param.value.length() > 0 {
+                return param.value[0];
+            }
+        }
+    }
+    
+    return error("JWKS endpoint not provided in request");
+}
+
 @http:ServiceConfig {
     cors: {
         allowCredentials: false,
@@ -231,14 +245,26 @@ service /action on new http:Listener(9092) {
     resource function get health() returns json {
         return {
             status: "UP",
-            serviceName: "asgardeo-mfa-validation",
+            serviceName: "mobileapp-auth-ext-api",
             version: "1.0.0",
-            description: "Pre-Issue Access Token Action with MFA Validation"
+            description: "Pre-Issue Access Token Action for Mobile App Authentication with MFA Validation"
         };
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
     resource function post .(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
+        // Extract dynamic JWT configuration from request
+        string|error jwtIssuer = extractJWTIssuer(payload);
+        string|error jwksEndpoint = extractJWKSEndpoint(payload);
+        
+        if jwtIssuer is error || jwksEndpoint is error {
+            return {
+                actionStatus: ERROR,
+                errorMessage: "Configuration missing",
+                errorDescription: "JWT issuer or JWKS endpoint not provided in request"
+            };
+        }
+        
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
@@ -248,8 +274,8 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Validate both tokens and MFA
-        string|error validatedAccessToken = validateTokensAndMFA(payload);
+        // Validate both tokens and MFA with dynamic parameters
+        string|error validatedAccessToken = validateTokensAndMFA(payload, jwtIssuer, jwksEndpoint);
         if validatedAccessToken is error {
             return {
                 actionStatus: FAILED,
@@ -291,7 +317,7 @@ service /action on new http:Listener(9092) {
                         value: {
                             signature: "valid",
                             method: "JWKS_RS256", 
-                            issuer: JWT_ISSUER,
+                            issuer: jwtIssuer,
                             timestamp: timestamp
                         }
                     }
