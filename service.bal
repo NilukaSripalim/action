@@ -1,5 +1,6 @@
 import ballerina/http;
 import ballerina/jwt;
+import ballerina/time;
 
 configurable boolean enabledDebugLog = true;
 
@@ -141,7 +142,11 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Return success response with userId claim
+        // Get current timestamp in ISO 8601 format
+        time:Utc currentTime = time:utcNow();
+        string timestamp = time:utcToString(currentTime);
+        
+        // Return success response with userId claim AND signature validation status with timestamp
         return {
             actionStatus: SUCCESS,
             operations: [
@@ -151,6 +156,30 @@ service /action on new http:Listener(9092) {
                     value: {
                         name: "userId",
                         value: userId
+                    }
+                },
+                {
+                    op: "add", 
+                    path: "/accessToken/claims/-",
+                    value: {
+                        name: "jwtSignatureValidated",
+                        value: true
+                    }
+                },
+                {
+                    op: "add",
+                    path: "/accessToken/claims/-",
+                    value: {
+                        name: "jwtValidationMethod",
+                        value: "JWKS_RS256"
+                    }
+                },
+                {
+                    op: "add",
+                    path: "/accessToken/claims/-",
+                    value: {
+                        name: "jwtValidationTimestamp",
+                        value: timestamp
                     }
                 }
             ]
