@@ -52,8 +52,7 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
     if amr is string[] {
-        boolean hasMFA = amr.includes("mfa") || amr.includes("otp") || amr.includes("totp") || 
-                         amr.includes("sms") || amr.includes("email") || amr.includes("push");
+        boolean hasMFA = checkMFAMethods(amr);
         if !hasMFA {
             return error("MFA not found in authentication methods. Found: " + amr.toString());
         }
@@ -62,6 +61,17 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     }
     
     return;
+}
+
+// Helper function to check for MFA methods in array
+function checkMFAMethods(string[] amr) returns boolean {
+    foreach string method in amr {
+        if method == "mfa" || method == "otp" || method == "totp" || 
+           method == "sms" || method == "email" || method == "push" {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Validate access token signature
