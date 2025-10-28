@@ -128,3 +128,9 @@ public type MFAValidationRecord record {|
     string method;
     string timestamp;
 |};
+
+// JWT Configuration type for the new extraction method
+public type JWTConfig record {|
+    string jwtIssuer;
+    string jwksEndpoint;
+|};
