@@ -24,7 +24,7 @@ function extractJWTConfigFromToken(string idToken) returns record {|string jwtIs
     }
 }
 
-// Helper function to construct JWKS endpoint from issuer
+// Helper function to construct JWKS endpoint from issuer - FIXED
 function constructJWKSEndpoint(string issuer) returns string|error {
     // Remove trailing slashes
     string cleanIssuer = issuer.trim();
@@ -32,9 +32,9 @@ function constructJWKSEndpoint(string issuer) returns string|error {
         cleanIssuer = cleanIssuer.substring(0, cleanIssuer.length() - 1);
     }
     
-    // Replace /oauth2/token with /oauth2/jwks if present
+    // Replace /oauth2/token with /oauth2/jwks if present - FIXED
     if cleanIssuer.endsWith("/oauth2/token") {
-        return cleanIssuer.replace("/oauth2/token", "/oauth2/jwks");
+        return cleanIssuer.replaceAll("/oauth2/token", "/oauth2/jwks");
     }
     
     // If no specific path, just append /oauth2/jwks
