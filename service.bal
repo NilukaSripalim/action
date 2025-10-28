@@ -4,8 +4,50 @@ import ballerina/time;
 
 configurable boolean enabledDebugLog = true;
 
+// Function to extract JWT configuration from ID token
+function extractJWTConfigFromToken(string idToken) returns record {|string jwtIssuer; string jwksEndpoint;|} | error {
+    [jwt:Header, jwt:Payload] [_, decodedPayload] = check jwt:decode(idToken);
+    
+    // Extract issuer from JWT payload
+    anydata? issuerClaim = decodedPayload.get("iss");
+    if issuerClaim is string {
+        string issuer = issuerClaim;
+        // Construct JWKS endpoint from issuer
+        string jwksEndpoint = check constructJWKSEndpoint(issuer);
+        
+        return {
+            jwtIssuer: issuer,
+            jwksEndpoint: jwksEndpoint
+        };
+    } else {
+        return error("Issuer (iss) claim not found in ID token");
+    }
+}
+
+// Helper function to construct JWKS endpoint from issuer
+function constructJWKSEndpoint(string issuer) returns string|error {
+    // Remove trailing slashes
+    string cleanIssuer = issuer.trim();
+    if cleanIssuer.endsWith("/") {
+        cleanIssuer = cleanIssuer.substring(0, cleanIssuer.length() - 1);
+    }
+    
+    // Replace /oauth2/token with /oauth2/jwks if present
+    if cleanIssuer.endsWith("/oauth2/token") {
+        return cleanIssuer.replace("/oauth2/token", "/oauth2/jwks");
+    }
+    
+    // If no specific path, just append /oauth2/jwks
+    // Check if issuer already has a path
+    if cleanIssuer.includes("/oauth2/") {
+        return cleanIssuer + "/jwks";
+    } else {
+        return cleanIssuer + "/oauth2/jwks";
+    }
+}
+
 // Extract and validate both tokens with MFA
-function validateTokensAndMFA(RequestBody payload, string jwtIssuer, string jwksEndpoint) returns string|error {
+function validateTokensAndMFA(RequestBody payload) returns string|error {
     RequestParams[]? requestParams = payload.event?.request?.additionalParams;
     if requestParams is () {
         return error("Token parameters missing in additionalParams");
@@ -14,6 +56,15 @@ function validateTokensAndMFA(RequestBody payload, string jwtIssuer, string jwks
     // Extract both tokens
     string idToken = check extractToken(requestParams, "id_token");
     string accessToken = check extractToken(requestParams, "access_token");
+    
+    // Extract JWT configuration from ID token
+    record {|string jwtIssuer; string jwksEndpoint;|} | error config = extractJWTConfigFromToken(idToken);
+    if config is error {
+        return error("Failed to extract JWT configuration from ID token: " + config.message());
+    }
+    
+    string jwtIssuer = config.jwtIssuer;
+    string jwksEndpoint = config.jwksEndpoint;
     
     // Validate ID Token signature and MFA claims
     check validateIDTokenAndMFA(idToken, jwtIssuer, jwksEndpoint);
@@ -135,7 +186,7 @@ function validateAccessToken(string accessToken, string jwtIssuer, string jwksEn
     return accessToken;
 }
 
-// Extract any token from parameters - FIXED
+// Extract any token from parameters
 function extractToken(RequestParams[] reqParams, string tokenName) returns string|error {
     map<string> params = {};
     foreach RequestParams param in reqParams {
@@ -185,75 +236,6 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     return error("User ID not found in validated JWT claims");
 }
 
-// Helper functions to extract dynamic parameters - FIXED
-function extractJWTIssuer(RequestBody payload) returns string|error {
-    // Option 1: Extract from custom headers in additionalHeaders
-    RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
-    if additionalHeaders is RequestHeaders[] {
-        foreach RequestHeaders header in additionalHeaders {
-            string? headerName = header.name;
-            string[]? headerValue = header.value;
-            if headerName == "x-jwt-issuer" && headerValue is string[] {
-                // Check if array has at least one element before accessing [0]
-                if headerValue.length() > 0 {
-                    return headerValue[0];
-                }
-            }
-        }
-    }
-    
-    // Option 2: Extract from additionalParams
-    RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
-    if additionalParams is RequestParams[] {
-        foreach RequestParams param in additionalParams {
-            string? paramName = param.name;
-            string[]? paramValue = param.value;
-            if paramName == "jwt_issuer" && paramValue is string[] {
-                // Check if array has at least one element before accessing [0]
-                if paramValue.length() > 0 {
-                    return paramValue[0];
-                }
-            }
-        }
-    }
-    
-    return error("JWT issuer not provided in request");
-}
-
-function extractJWKSEndpoint(RequestBody payload) returns string|error {
-    // Option 1: Extract from custom headers in additionalHeaders
-    RequestHeaders[]? additionalHeaders = payload.event?.request?.additionalHeaders;
-    if additionalHeaders is RequestHeaders[] {
-        foreach RequestHeaders header in additionalHeaders {
-            string? headerName = header.name;
-            string[]? headerValue = header.value;
-            if headerName == "x-jwks-endpoint" && headerValue is string[] {
-                // Check if array has at least one element before accessing [0]
-                if headerValue.length() > 0 {
-                    return headerValue[0];
-                }
-            }
-        }
-    }
-    
-    // Option 2: Extract from additionalParams
-    RequestParams[]? additionalParams = payload.event?.request?.additionalParams;
-    if additionalParams is RequestParams[] {
-        foreach RequestParams param in additionalParams {
-            string? paramName = param.name;
-            string[]? paramValue = param.value;
-            if paramName == "jwks_endpoint" && paramValue is string[] {
-                // Check if array has at least one element before accessing [0]
-                if paramValue.length() > 0 {
-                    return paramValue[0];
-                }
-            }
-        }
-    }
-    
-    return error("JWKS endpoint not provided in request");
-}
-
 @http:ServiceConfig {
     cors: {
         allowCredentials: false,
@@ -276,18 +258,6 @@ service /action on new http:Listener(9092) {
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
     resource function post .(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
-        // Extract dynamic JWT configuration from request
-        string|error jwtIssuer = extractJWTIssuer(payload);
-        string|error jwksEndpoint = extractJWKSEndpoint(payload);
-        
-        if jwtIssuer is error || jwksEndpoint is error {
-            return {
-                actionStatus: ERROR,
-                errorMessage: "Configuration missing",
-                errorDescription: "JWT issuer or JWKS endpoint not provided in request"
-            };
-        }
-        
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
@@ -297,8 +267,8 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Validate both tokens and MFA with dynamic parameters
-        string|error validatedAccessToken = validateTokensAndMFA(payload, jwtIssuer, jwksEndpoint);
+        // Validate both tokens and MFA - configuration is now extracted from ID token
+        string|error validatedAccessToken = validateTokensAndMFA(payload);
         if validatedAccessToken is error {
             return {
                 actionStatus: FAILED,
@@ -315,6 +285,11 @@ service /action on new http:Listener(9092) {
                 failureDescription: userId.message()
             };
         }
+        
+        // Extract configuration for response (decode the validated access token to get issuer)
+        [jwt:Header, jwt:Payload] [_, accessTokenPayload] = check jwt:decode(validatedAccessToken);
+        anydata? issuerClaim = accessTokenPayload.get("iss");
+        string jwtIssuer = issuerClaim is string ? issuerClaim : "unknown";
         
         // Get current timestamp
         time:Utc currentTime = time:utcNow();
