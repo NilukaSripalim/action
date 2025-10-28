@@ -1,6 +1,7 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/time;
+import ballerina/regex;
 
 configurable boolean enabledDebugLog = true;
 
@@ -34,7 +35,8 @@ function constructJWKSEndpoint(string issuer) returns string|error {
     
     // Replace /oauth2/token with /oauth2/jwks if present - FIXED
     if cleanIssuer.endsWith("/oauth2/token") {
-        return cleanIssuer.replaceAll("/oauth2/token", "/oauth2/jwks");
+        // Use string concatenation instead of replace
+        return cleanIssuer.substring(0, cleanIssuer.length() - "/token".length()) + "/jwks";
     }
     
     // If no specific path, just append /oauth2/jwks
