@@ -1,7 +1,6 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/time;
-import ballerina/regex;
 
 configurable boolean enabledDebugLog = true;
 
@@ -288,8 +287,17 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Extract configuration for response (decode the validated access token to get issuer)
-        [jwt:Header, jwt:Payload] [_, accessTokenPayload] = check jwt:decode(validatedAccessToken);
+        // Extract configuration for response - FIXED: handle the error properly
+        [jwt:Header, jwt:Payload]|error decodeResult = jwt:decode(validatedAccessToken);
+        if decodeResult is error {
+            return {
+                actionStatus: FAILED,
+                failureReason: "token_decoding_failed",
+                failureDescription: "Failed to decode validated access token: " + decodeResult.message()
+            };
+        }
+        
+        [jwt:Header, jwt:Payload] [_, accessTokenPayload] = decodeResult;
         anydata? issuerClaim = accessTokenPayload.get("iss");
         string jwtIssuer = issuerClaim is string ? issuerClaim : "unknown";
         
