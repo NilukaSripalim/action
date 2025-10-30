@@ -113,25 +113,38 @@ function validateIDTokenAndMFA(string idToken, string jwtIssuer, string jwksEndp
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token - FIXED: Handle both string[] and string types
+// Validate MFA claims in ID Token - FIXED: Better type checking
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
     
     if enabledDebugLog {
-        log:printInfo("AMR claim found: " + amr.toString());
+        log:printInfo("Raw AMR claim: " + amr.toString());
     }
     
-    if amr is string[] {
-        // Handle array case
-        boolean hasMFA = checkMFAMethods(amr);
-        if hasMFA {
-            if enabledDebugLog {
-                log:printInfo("MFA validation successful with methods: " + amr.toString());
+    if amr is () {
+        return error("amr claim is missing in ID token - MFA validation failed");
+    } else if amr is anydata[] {
+        // Handle array case - convert to string array
+        string[] amrArray = [];
+        foreach anydata item in amr {
+            if item is string {
+                amrArray.push(item);
             }
-            return;
+        }
+        
+        if amrArray.length() > 0 {
+            boolean hasMFA = checkMFAMethods(amrArray);
+            if hasMFA {
+                if enabledDebugLog {
+                    log:printInfo("MFA validation successful with methods: " + amrArray.toString());
+                }
+                return;
+            } else {
+                return error("No MFA methods found in amr: " + amrArray.toString());
+            }
         } else {
-            return error("No MFA methods found in amr: " + amr.toString());
+            return error("amr claim contains no valid string values");
         }
     } else if amr is string {
         // Handle single string case - convert to array
@@ -146,7 +159,7 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
             return error("No MFA methods found in amr: " + amr);
         }
     } else {
-        return error("amr claim is not a string array or string, found: " + amr.toString());
+        return error("amr claim has unsupported type: " + amr.type().toString());
     }
 }
 
@@ -266,7 +279,7 @@ function extractToken(RequestParams[] reqParams, string tokenName) returns strin
     return error(tokenName + " parameter not found in request parameters");
 }
 
-// Extract userID from validated access token payload - FIXED: removed unsupported getKeys() call
+// Extract userID from validated access token payload
 function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
     
