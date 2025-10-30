@@ -327,7 +327,7 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
         allowHeaders: ["*"]
     }
 }
-service /actionCuCaseChoreoMFAValidation on new http:Listener(9092) {
+service / on new http:Listener(9092) {
 
     // Health check endpoint - GET only
     resource function get health() returns json {
@@ -341,7 +341,7 @@ service /actionCuCaseChoreoMFAValidation on new http:Listener(9092) {
     }
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post .(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
+    resource function post actionCuCaseChoreoMFAValidation(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
         if enabledDebugLog {
             log:printInfo("Received request with actionType: " + payload.actionType.toString());
             log:printInfo("Request ID: " + payload.requestId.toString());
