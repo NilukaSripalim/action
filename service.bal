@@ -1,11 +1,13 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/time;
+import ballerina/log;
 
+// Configurable debug flag
 configurable boolean enabledDebugLog = true;
 
 // Function to extract JWT configuration from ID token
-function extractJWTConfigFromToken(string idToken) returns record {|string jwtIssuer; string jwksEndpoint;|} | error {
+function extractJWTConfigFromToken(string idToken) returns JWTConfig|error {
     [jwt:Header, jwt:Payload] [_, decodedPayload] = check jwt:decode(idToken);
     
     // Extract issuer from JWT payload
@@ -24,7 +26,7 @@ function extractJWTConfigFromToken(string idToken) returns record {|string jwtIs
     }
 }
 
-// Helper function to construct JWKS endpoint from issuer - FIXED
+// Helper function to construct JWKS endpoint from issuer
 function constructJWKSEndpoint(string issuer) returns string|error {
     // Remove trailing slashes
     string cleanIssuer = issuer.trim();
@@ -32,7 +34,7 @@ function constructJWKSEndpoint(string issuer) returns string|error {
         cleanIssuer = cleanIssuer.substring(0, cleanIssuer.length() - 1);
     }
     
-    // Replace /oauth2/token with /oauth2/jwks if present - FIXED
+    // Replace /oauth2/token with /oauth2/jwks if present
     if cleanIssuer.endsWith("/oauth2/token") {
         // Use string concatenation instead of replace
         return cleanIssuer.substring(0, cleanIssuer.length() - "/token".length()) + "/jwks";
@@ -58,14 +60,24 @@ function validateTokensAndMFA(RequestBody payload) returns string|error {
     string idToken = check extractToken(requestParams, "id_token");
     string accessToken = check extractToken(requestParams, "access_token");
     
+    if enabledDebugLog {
+        log:printInfo("Extracted ID Token: " + idToken.substring(0, 50) + "...");
+        log:printInfo("Extracted Access Token: " + accessToken.substring(0, 50) + "...");
+    }
+    
     // Extract JWT configuration from ID token
-    record {|string jwtIssuer; string jwksEndpoint;|} | error config = extractJWTConfigFromToken(idToken);
+    JWTConfig|error config = extractJWTConfigFromToken(idToken);
     if config is error {
         return error("Failed to extract JWT configuration from ID token: " + config.message());
     }
     
     string jwtIssuer = config.jwtIssuer;
     string jwksEndpoint = config.jwksEndpoint;
+    
+    if enabledDebugLog {
+        log:printInfo("JWT Issuer: " + jwtIssuer);
+        log:printInfo("JWKS Endpoint: " + jwksEndpoint);
+    }
     
     // Validate ID Token signature and MFA claims
     check validateIDTokenAndMFA(idToken, jwtIssuer, jwksEndpoint);
@@ -93,30 +105,61 @@ function validateIDTokenAndMFA(string idToken, string jwtIssuer, string jwksEndp
         return error("ID Token signature validation failed: " + idTokenValidation.message());
     }
     
+    if enabledDebugLog {
+        log:printInfo("ID Token signature validation successful");
+    }
+    
     // Check MFA claims in ID Token
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token
+// Validate MFA claims in ID Token - FIXED: Handle both string[] and string types
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
     
+    if enabledDebugLog {
+        log:printInfo("AMR claim found: " + amr.toString());
+    }
+    
     if amr is string[] {
+        // Handle array case
         boolean hasMFA = checkMFAMethods(amr);
         if hasMFA {
+            if enabledDebugLog {
+                log:printInfo("MFA validation successful with methods: " + amr.toString());
+            }
             return;
         } else {
             return error("No MFA methods found in amr: " + amr.toString());
         }
+    } else if amr is string {
+        // Handle single string case - convert to array
+        string[] amrArray = [amr];
+        boolean hasMFA = checkMFAMethods(amrArray);
+        if hasMFA {
+            if enabledDebugLog {
+                log:printInfo("MFA validation successful with method: " + amr);
+            }
+            return;
+        } else {
+            return error("No MFA methods found in amr: " + amr);
+        }
     } else {
-        return error("amr claim is not a string array or is missing");
+        return error("amr claim is not a string array or string, found: " + amr.toString());
     }
 }
 
 // Helper function to check for MFA methods in array
 function checkMFAMethods(string[] amr) returns boolean {
+    if enabledDebugLog {
+        log:printInfo("Checking MFA methods: " + amr.toString());
+    }
+    
     foreach string method in amr {
+        if enabledDebugLog {
+            log:printInfo("Evaluating method: " + method);
+        }
         // Check for Asgardeo MFA authenticator names
         if method == "email-otp-authenticator" || 
            method == "sms-otp-authenticator" || 
@@ -128,13 +171,23 @@ function checkMFAMethods(string[] amr) returns boolean {
            method == "sms-otp" ||
            method == "totp" ||
            method == "mfa" {
+            if enabledDebugLog {
+                log:printInfo("MFA method detected: " + method);
+            }
             return true;
         }
         
         // Check for OTP indicators
         if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
+            if enabledDebugLog {
+                log:printInfo("MFA method detected via substring: " + method);
+            }
             return true;
         }
+    }
+    
+    if enabledDebugLog {
+        log:printInfo("No MFA methods detected in: " + amr.toString());
     }
     return false;
 }
@@ -184,6 +237,10 @@ function validateAccessToken(string accessToken, string jwtIssuer, string jwksEn
         return error("Access Token signature validation failed: " + accessTokenValidation.message());
     }
     
+    if enabledDebugLog {
+        log:printInfo("Access Token signature validation successful");
+    }
+    
     return accessToken;
 }
 
@@ -216,25 +273,37 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     // Try to get userId from various claims
     anydata? subClaim = jwtPayload.get("sub");
     if subClaim is string {
+        if enabledDebugLog {
+            log:printInfo("User ID extracted from 'sub' claim: " + subClaim);
+        }
         return subClaim;
     }
     
     anydata? userIdClaim = jwtPayload.get("userId");
     if userIdClaim is string {
+        if enabledDebugLog {
+            log:printInfo("User ID extracted from 'userId' claim: " + userIdClaim);
+        }
         return userIdClaim;
     }
     
     anydata? usernameClaim = jwtPayload.get("username");
     if usernameClaim is string {
+        if enabledDebugLog {
+            log:printInfo("User ID extracted from 'username' claim: " + usernameClaim);
+        }
         return usernameClaim;
     }
     
     anydata? emailClaim = jwtPayload.get("email");
     if emailClaim is string {
+        if enabledDebugLog {
+            log:printInfo("User ID extracted from 'email' claim: " + emailClaim);
+        }
         return emailClaim;
     }
     
-    return error("User ID not found in validated JWT claims");
+    return error("User ID not found in validated JWT claims. Available claims: " + jwtPayload.getKeys().toString());
 }
 
 @http:ServiceConfig {
@@ -259,6 +328,11 @@ service /action on new http:Listener(9092) {
 
     // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
     resource function post .(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
+        if enabledDebugLog {
+            log:printInfo("Received request with actionType: " + payload.actionType.toString());
+            log:printInfo("Request ID: " + payload.requestId.toString());
+        }
+        
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
             return {
@@ -287,7 +361,7 @@ service /action on new http:Listener(9092) {
             };
         }
         
-        // Extract configuration for response - FIXED: handle the error properly
+        // Extract configuration for response
         [jwt:Header, jwt:Payload]|error decodeResult = jwt:decode(validatedAccessToken);
         if decodeResult is error {
             return {
@@ -304,6 +378,25 @@ service /action on new http:Listener(9092) {
         // Get current timestamp
         time:Utc currentTime = time:utcNow();
         string timestamp = time:utcToString(currentTime);
+        
+        if enabledDebugLog {
+            log:printInfo("Token validation successful for user: " + userId);
+            log:printInfo("Returning success response");
+        }
+        
+        // Create validation records
+        TokenValidationRecord tokenValidation = {
+            signature: "valid",
+            method: "JWKS_RS256", 
+            issuer: jwtIssuer,
+            timestamp: timestamp
+        };
+        
+        MFAValidationRecord mfaValidation = {
+            status: "success",
+            method: "ID_TOKEN_AMR_VALIDATION",
+            timestamp: timestamp
+        };
         
         // Return success response with structured validation info
         return {
@@ -322,12 +415,7 @@ service /action on new http:Listener(9092) {
                     path: "/accessToken/claims/-",
                     value: {
                         name: "tokenValidation",
-                        value: {
-                            signature: "valid",
-                            method: "JWKS_RS256", 
-                            issuer: jwtIssuer,
-                            timestamp: timestamp
-                        }
+                        value: tokenValidation
                     }
                 },
                 {
@@ -335,11 +423,7 @@ service /action on new http:Listener(9092) {
                     path: "/accessToken/claims/-",
                     value: {
                         name: "mfaValidation", 
-                        value: {
-                            status: "success",
-                            method: "ID_TOKEN_AMR_VALIDATION",
-                            timestamp: timestamp
-                        }
+                        value: mfaValidation
                     }
                 }
             ]
