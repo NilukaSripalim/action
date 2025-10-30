@@ -113,7 +113,7 @@ function validateIDTokenAndMFA(string idToken, string jwtIssuer, string jwksEndp
     return check validateMFAClaims(idTokenValidation);
 }
 
-// Validate MFA claims in ID Token - FIXED: Better type checking
+// Validate MFA claims in ID Token - FIXED: Proper type handling
 function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
     // Check amr (Authentication Methods References)
     anydata? amr = idTokenPayload.get("amr");
@@ -159,7 +159,7 @@ function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
             return error("No MFA methods found in amr: " + amr);
         }
     } else {
-        return error("amr claim has unsupported type: " + amr.type().toString());
+        return error("amr claim has unsupported type");
     }
 }
 
