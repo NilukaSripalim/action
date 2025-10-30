@@ -327,15 +327,16 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
         allowHeaders: ["*"]
     }
 }
-service /action on new http:Listener(9092) {
+service /actionCuCaseChoreoMFAValidation on new http:Listener(9092) {
 
-    // Health check endpoint
+    // Health check endpoint - GET only
     resource function get health() returns json {
         return {
             status: "UP",
             serviceName: "mobileapp-auth-ext-api",
             version: "1.0.0",
-            description: "Pre-Issue Access Token Action for Mobile App Authentication with MFA Validation"
+            description: "Pre-Issue Access Token Action for Mobile App Authentication with MFA Validation",
+            timestamp: time:utcToString(time:utcNow())
         };
     }
 
