@@ -266,7 +266,7 @@ function extractToken(RequestParams[] reqParams, string tokenName) returns strin
     return error(tokenName + " parameter not found in request parameters");
 }
 
-// Extract userID from validated access token payload
+// Extract userID from validated access token payload - FIXED: removed unsupported getKeys() call
 function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
     [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
     
@@ -303,7 +303,7 @@ function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
         return emailClaim;
     }
     
-    return error("User ID not found in validated JWT claims. Available claims: " + jwtPayload.getKeys().toString());
+    return error("User ID not found in validated JWT claims. Checked: sub, userId, username, email");
 }
 
 @http:ServiceConfig {
