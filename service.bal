@@ -1,446 +1,290 @@
 import ballerina/http;
-import ballerina/jwt;
-import ballerina/time;
 import ballerina/log;
+import ballerina/time;
+import ballerina/uuid;
 
-// Configurable debug flag
-configurable boolean enabledDebugLog = true;
+// Define the request/response types for WSO2 Pre-Issue Access Token action
+type OperationType "add"|"remove"|"replace";
 
-// Function to extract JWT configuration from ID token
-function extractJWTConfigFromToken(string idToken) returns JWTConfig|error {
-    [jwt:Header, jwt:Payload] [_, decodedPayload] = check jwt:decode(idToken);
-    
-    // Extract issuer from JWT payload
-    anydata? issuerClaim = decodedPayload.get("iss");
-    if issuerClaim is string {
-        string issuer = issuerClaim;
-        // Construct JWKS endpoint from issuer
-        string jwksEndpoint = check constructJWKSEndpoint(issuer);
+type Claim record {|
+    string name;
+    anydata value;
+|};
+
+type AccessToken record {|
+    string tokenType?;
+    string[] scopes?;
+    Claim[] claims?;
+|};
+
+type RefreshToken record {|
+    Claim[] claims?;
+|};
+
+type TokenRequest record {|
+    string clientId;
+    string grantType;
+    string[] scopes?;
+    map<string[]> additionalHeaders?;
+    map<string[]> additionalParams?;
+|};
+
+type Organization record {|
+    string id;
+    string name;
+    string orgHandle?;
+    int depth?;
+|};
+
+type User record {|
+    string id;
+    Organization organization;
+|};
+
+type UserStore record {|
+    string id;
+    string name;
+|};
+
+type TokenEvent record {|
+    TokenRequest request;
+    record {|
+        string id;
+        string name;
+    |} tenant;
+    Organization organization;
+    User user;
+    UserStore userStore;
+    AccessToken accessToken;
+    RefreshToken refreshToken;
+|};
+
+type AllowedOperation record {|
+    OperationType op;
+    string[] paths;
+|};
+
+type PreIssueRequest record {|
+    string actionType;
+    TokenEvent event;
+    AllowedOperation[] allowedOperations;
+    string requestId?;
+|};
+
+type Operation record {|
+    OperationType op;
+    string path;
+    anydata value?;
+|};
+
+type SuccessResponse record {|
+    string actionStatus = "SUCCESS";
+    Operation[] operations;
+|};
+
+type FailedResponse record {|
+    string actionStatus = "FAILED";
+    string failureReason;
+    string failureDescription;
+|};
+
+type ErrorResponse record {|
+    string actionStatus = "ERROR";
+    string errorMessage;
+    string errorDescription;
+|};
+
+// Service configuration
+final string SERVICE_ENDPOINT = "/pre-issue-token";
+final int SERVICE_PORT = 9090;
+
+// Service implementation
+service / on new http:Listener(SERVICE_PORT) {
+
+    resource function post pre-issue-token(http:Caller caller, PreIssueRequest request) returns error? {
         
-        return {
-            jwtIssuer: issuer,
-            jwksEndpoint: jwksEndpoint
-        };
-    } else {
-        return error("Issuer (iss) claim not found in ID token");
-    }
-}
+        log:printInfo("Received pre-issue token request", 
+            requestId = request?.requestId.toString(), 
+            clientId = request.event.request.clientId,
+            grantType = request.event.request.grantType,
+            userId = request.event.user.id
+        );
 
-// Helper function to construct JWKS endpoint from issuer
-function constructJWKSEndpoint(string issuer) returns string|error {
-    // Remove trailing slashes
-    string cleanIssuer = issuer.trim();
-    if cleanIssuer.endsWith("/") {
-        cleanIssuer = cleanIssuer.substring(0, cleanIssuer.length() - 1);
-    }
-    
-    // Replace /oauth2/token with /oauth2/jwks if present
-    if cleanIssuer.endsWith("/oauth2/token") {
-        // Use string concatenation instead of replace
-        return cleanIssuer.substring(0, cleanIssuer.length() - "/token".length()) + "/jwks";
-    }
-    
-    // If no specific path, just append /oauth2/jwks
-    // Check if issuer already has a path
-    if cleanIssuer.includes("/oauth2/") {
-        return cleanIssuer + "/jwks";
-    } else {
-        return cleanIssuer + "/oauth2/jwks";
-    }
-}
-
-// Extract and validate both tokens with MFA
-function validateTokensAndMFA(RequestBody payload) returns string|error {
-    RequestParams[]? requestParams = payload.event?.request?.additionalParams;
-    if requestParams is () {
-        return error("Token parameters missing in additionalParams");
-    }
-    
-    // Extract both tokens
-    string idToken = check extractToken(requestParams, "id_token");
-    string accessToken = check extractToken(requestParams, "access_token");
-    
-    if enabledDebugLog {
-        log:printInfo("Extracted ID Token: " + idToken.substring(0, 50) + "...");
-        log:printInfo("Extracted Access Token: " + accessToken.substring(0, 50) + "...");
-    }
-    
-    // Extract JWT configuration from ID token
-    JWTConfig|error config = extractJWTConfigFromToken(idToken);
-    if config is error {
-        return error("Failed to extract JWT configuration from ID token: " + config.message());
-    }
-    
-    string jwtIssuer = config.jwtIssuer;
-    string jwksEndpoint = config.jwksEndpoint;
-    
-    if enabledDebugLog {
-        log:printInfo("JWT Issuer: " + jwtIssuer);
-        log:printInfo("JWKS Endpoint: " + jwksEndpoint);
-    }
-    
-    // Validate ID Token signature and MFA claims
-    check validateIDTokenAndMFA(idToken, jwtIssuer, jwksEndpoint);
-    
-    // Validate access token signature
-    string validatedAccessToken = check validateAccessToken(accessToken, jwtIssuer, jwksEndpoint);
-    
-    return validatedAccessToken;
-}
-
-// Validate ID Token signature and MFA claims
-function validateIDTokenAndMFA(string idToken, string jwtIssuer, string jwksEndpoint) returns error? {
-    jwt:ValidatorConfig idTokenValidator = {
-        issuer: jwtIssuer,
-        clockSkew: 60,
-        signatureConfig: {
-            jwksConfig: {
-                url: jwksEndpoint
-            }
-        }
-    };
-    
-    jwt:Payload|error idTokenValidation = jwt:validate(idToken, idTokenValidator);
-    if idTokenValidation is error {
-        return error("ID Token signature validation failed: " + idTokenValidation.message());
-    }
-    
-    if enabledDebugLog {
-        log:printInfo("ID Token signature validation successful");
-    }
-    
-    // Check MFA claims in ID Token
-    return check validateMFAClaims(idTokenValidation);
-}
-
-// Validate MFA claims in ID Token - FIXED: Proper type handling
-function validateMFAClaims(jwt:Payload idTokenPayload) returns error? {
-    // Check amr (Authentication Methods References)
-    anydata? amr = idTokenPayload.get("amr");
-    
-    if enabledDebugLog {
-        log:printInfo("Raw AMR claim: " + amr.toString());
-    }
-    
-    if amr is () {
-        return error("amr claim is missing in ID token - MFA validation failed");
-    } else if amr is anydata[] {
-        // Handle array case - convert to string array
-        string[] amrArray = [];
-        foreach anydata item in amr {
-            if item is string {
-                amrArray.push(item);
-            }
-        }
-        
-        if amrArray.length() > 0 {
-            boolean hasMFA = checkMFAMethods(amrArray);
-            if hasMFA {
-                if enabledDebugLog {
-                    log:printInfo("MFA validation successful with methods: " + amrArray.toString());
-                }
-                return;
-            } else {
-                return error("No MFA methods found in amr: " + amrArray.toString());
-            }
-        } else {
-            return error("amr claim contains no valid string values");
-        }
-    } else if amr is string {
-        // Handle single string case - convert to array
-        string[] amrArray = [amr];
-        boolean hasMFA = checkMFAMethods(amrArray);
-        if hasMFA {
-            if enabledDebugLog {
-                log:printInfo("MFA validation successful with method: " + amr);
-            }
-            return;
-        } else {
-            return error("No MFA methods found in amr: " + amr);
-        }
-    } else {
-        return error("amr claim has unsupported type");
-    }
-}
-
-// Helper function to check for MFA methods in array
-function checkMFAMethods(string[] amr) returns boolean {
-    if enabledDebugLog {
-        log:printInfo("Checking MFA methods: " + amr.toString());
-    }
-    
-    foreach string method in amr {
-        if enabledDebugLog {
-            log:printInfo("Evaluating method: " + method);
-        }
-        // Check for Asgardeo MFA authenticator names
-        if method == "email-otp-authenticator" || 
-           method == "sms-otp-authenticator" || 
-           method == "totp-authenticator" ||
-           method == "BasicAuthenticator" ||
-           method == "FIDOAuthenticator" ||
-           method == "backup-code-authenticator" ||
-           method == "email-otp" ||
-           method == "sms-otp" ||
-           method == "totp" ||
-           method == "mfa" {
-            if enabledDebugLog {
-                log:printInfo("MFA method detected: " + method);
-            }
-            return true;
-        }
-        
-        // Check for OTP indicators
-        if hasSubstring(method, "otp") || hasSubstring(method, "mfa") || hasSubstring(method, "authenticator") {
-            if enabledDebugLog {
-                log:printInfo("MFA method detected via substring: " + method);
-            }
-            return true;
-        }
-    }
-    
-    if enabledDebugLog {
-        log:printInfo("No MFA methods detected in: " + amr.toString());
-    }
-    return false;
-}
-
-// Helper function to check if string contains substring
-function hasSubstring(string str, string substring) returns boolean {
-    int subLength = substring.length();
-    int strLength = str.length();
-    
-    if subLength > strLength {
-        return false;
-    }
-    
-    int i = 0;
-    while i <= strLength - subLength {
-        boolean found = true;
-        int j = 0;
-        while j < subLength {
-            if str[i + j] != substring[j] {
-                found = false;
-                break;
-            }
-            j += 1;
-        }
-        if found {
-            return true;
-        }
-        i += 1;
-    }
-    return false;
-}
-
-// Validate access token signature
-function validateAccessToken(string accessToken, string jwtIssuer, string jwksEndpoint) returns string|error {
-    jwt:ValidatorConfig accessTokenValidator = {
-        issuer: jwtIssuer,
-        clockSkew: 60,
-        signatureConfig: {
-            jwksConfig: {
-                url: jwksEndpoint
-            }
-        }
-    };
-    
-    jwt:Payload|error accessTokenValidation = jwt:validate(accessToken, accessTokenValidator);
-    if accessTokenValidation is error {
-        return error("Access Token signature validation failed: " + accessTokenValidation.message());
-    }
-    
-    if enabledDebugLog {
-        log:printInfo("Access Token signature validation successful");
-    }
-    
-    return accessToken;
-}
-
-// Extract any token from parameters
-function extractToken(RequestParams[] reqParams, string tokenName) returns string|error {
-    map<string> params = {};
-    foreach RequestParams param in reqParams {
-        string[]? value = param.value;
-        string? name = param.name;
-        if name is string && value is string[] {
-            // Check if array has at least one element before accessing [0]
-            if value.length() > 0 {
-                params[name] = value[0];
-            }
-        }
-    }
-    
-    string? token = params[tokenName];
-    if token is string {
-        return token;
-    }
-    
-    return error(tokenName + " parameter not found in request parameters");
-}
-
-// Extract userID from validated access token payload
-function extractUserIdFromValidatedJWT(string jwtToken) returns string|error {
-    [jwt:Header, jwt:Payload] [_, jwtPayload] = check jwt:decode(jwtToken);
-    
-    // Try to get userId from various claims
-    anydata? subClaim = jwtPayload.get("sub");
-    if subClaim is string {
-        if enabledDebugLog {
-            log:printInfo("User ID extracted from 'sub' claim: " + subClaim);
-        }
-        return subClaim;
-    }
-    
-    anydata? userIdClaim = jwtPayload.get("userId");
-    if userIdClaim is string {
-        if enabledDebugLog {
-            log:printInfo("User ID extracted from 'userId' claim: " + userIdClaim);
-        }
-        return userIdClaim;
-    }
-    
-    anydata? usernameClaim = jwtPayload.get("username");
-    if usernameClaim is string {
-        if enabledDebugLog {
-            log:printInfo("User ID extracted from 'username' claim: " + usernameClaim);
-        }
-        return usernameClaim;
-    }
-    
-    anydata? emailClaim = jwtPayload.get("email");
-    if emailClaim is string {
-        if enabledDebugLog {
-            log:printInfo("User ID extracted from 'email' claim: " + emailClaim);
-        }
-        return emailClaim;
-    }
-    
-    return error("User ID not found in validated JWT claims. Checked: sub, userId, username, email");
-}
-
-@http:ServiceConfig {
-    cors: {
-        allowCredentials: false,
-        allowOrigins: ["*"],
-        allowMethods: ["GET", "POST", "OPTIONS"],
-        allowHeaders: ["*"]
-    }
-}
-service / on new http:Listener(9092) {
-
-    // Health check endpoint - GET only
-    resource function get health() returns json {
-        return {
-            status: "UP",
-            serviceName: "mobileapp-auth-ext-api",
-            version: "1.0.0",
-            description: "Pre-Issue Access Token Action for Mobile App Authentication with MFA Validation",
-            timestamp: time:utcToString(time:utcNow())
-        };
-    }
-
-    // Main webhook endpoint for Asgardeo Pre-Issue Access Token action
-    resource function post actionCuCaseChoreoMFAValidation(RequestBody payload) returns SuccessResponse|FailedResponse|ErrorResponse {
-        if enabledDebugLog {
-            log:printInfo("Received request with actionType: " + payload.actionType.toString());
-            log:printInfo("Request ID: " + payload.requestId.toString());
-        }
-        
-        // Validate action type
-        if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
-            return {
-                actionStatus: ERROR,
+        // Validate the action type
+        if request.actionType != "PRE_ISSUE_ACCESS_TOKEN" {
+            ErrorResponse errorResponse = {
+                actionStatus: "ERROR",
                 errorMessage: "Invalid action type",
-                errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
+                errorDescription: "Expected PRE_ISSUE_ACCESS_TOKEN but received " + request.actionType
             };
+            http:Response response = new;
+            response.setJsonPayload(errorResponse);
+            response.statusCode = 400;
+            check caller->respond(response);
+            return;
         }
-        
-        // Validate both tokens and MFA - configuration is now extracted from ID token
-        string|error validatedAccessToken = validateTokensAndMFA(payload);
-        if validatedAccessToken is error {
-            return {
-                actionStatus: FAILED,
-                failureReason: "invalid_token",
-                failureDescription: validatedAccessToken.message()
+
+        // Validate that user ID exists
+        if request.event.user.id == "" {
+            FailedResponse failedResponse = {
+                actionStatus: "FAILED",
+                failureReason: "invalid_request",
+                failureDescription: "User ID is missing from the request"
             };
+            http:Response response = new;
+            response.setJsonPayload(failedResponse);
+            check caller->respond(response);
+            return;
         }
+
+        // Your custom business logic here
+        SuccessResponse successResponse = processTokenRequest(request);
         
-        string|error userId = extractUserIdFromValidatedJWT(validatedAccessToken);
-        if userId is error {
-            return {
-                actionStatus: FAILED,
-                failureReason: "invalid_token",
-                failureDescription: userId.message()
-            };
-        }
+        http:Response response = new;
+        response.setJsonPayload(successResponse);
+        response.setHeader("Content-Type", "application/json");
+        check caller->respond(response);
         
-        // Extract configuration for response
-        [jwt:Header, jwt:Payload]|error decodeResult = jwt:decode(validatedAccessToken);
-        if decodeResult is error {
-            return {
-                actionStatus: FAILED,
-                failureReason: "token_decoding_failed",
-                failureDescription: "Failed to decode validated access token: " + decodeResult.message()
-            };
-        }
-        
-        [jwt:Header, jwt:Payload] [_, accessTokenPayload] = decodeResult;
-        anydata? issuerClaim = accessTokenPayload.get("iss");
-        string jwtIssuer = issuerClaim is string ? issuerClaim : "unknown";
-        
-        // Get current timestamp
-        time:Utc currentTime = time:utcNow();
-        string timestamp = time:utcToString(currentTime);
-        
-        if enabledDebugLog {
-            log:printInfo("Token validation successful for user: " + userId);
-            log:printInfo("Returning success response");
-        }
-        
-        // Create validation records
-        TokenValidationRecord tokenValidation = {
-            signature: "valid",
-            method: "JWKS_RS256", 
-            issuer: jwtIssuer,
-            timestamp: timestamp
-        };
-        
-        MFAValidationRecord mfaValidation = {
-            status: "success",
-            method: "ID_TOKEN_AMR_VALIDATION",
-            timestamp: timestamp
-        };
-        
-        // Return success response with structured validation info
-        return {
-            actionStatus: SUCCESS,
-            operations: [
-                {
-                    op: "add",
-                    path: "/accessToken/claims/-",
-                    value: {
-                        name: "userId", 
-                        value: userId
-                    }
-                },
-                {
-                    op: "add",
-                    path: "/accessToken/claims/-",
-                    value: {
-                        name: "tokenValidation",
-                        value: tokenValidation
-                    }
-                },
-                {
-                    op: "add",
-                    path: "/accessToken/claims/-",
-                    value: {
-                        name: "mfaValidation", 
-                        value: mfaValidation
-                    }
-                }
-            ]
-        };
+        log:printInfo("Successfully processed pre-issue token request", userId = request.event.user.id);
     }
+}
+
+// Main business logic function
+function processTokenRequest(PreIssueRequest request) returns SuccessResponse {
+    string timestamp = time:utcToString(time:utcNow());
+    string userId = request.event.user.id; // Using the actual user ID from the request
+    
+    // Extract issuer from existing token claims
+    string|error issuer = extractIssuer(request.event.accessToken.claims);
+    if issuer is error {
+        log:printError("Failed to extract issuer", error = issuer.message());
+        issuer = "https://dev.api.asgardeo.io/t/" + request.event.organization.name + "/oauth2/token";
+    }
+    
+    // Create operations array to modify the access token
+    Operation[] operations = [];
+    
+    // Add userId claim (using the actual user ID from the request)
+    operations.push({
+        op: "add",
+        path: "/accessToken/claims/-",
+        value: {
+            name: "userId",
+            value: userId
+        }
+    });
+    
+    // Add tokenValidation claim
+    operations.push({
+        op: "add", 
+        path: "/accessToken/claims/-",
+        value: {
+            name: "tokenValidation",
+            value: `{"signature":"valid","method":"JWKS_RS256","issuer":"${issuer}","timestamp":"${timestamp}"}`
+        }
+    });
+    
+    // Add mfaValidation claim  
+    operations.push({
+        op: "add",
+        path: "/accessToken/claims/-", 
+        value: {
+            name: "mfaValidation",
+            value: `{"status":"success","method":"ID_TOKEN_AMR_VALIDATION","timestamp":"${timestamp}"}`
+        }
+    });
+    
+    // Add organization context claims
+    operations.push({
+        op: "add",
+        path: "/accessToken/claims/-",
+        value: {
+            name: "organizationContext",
+            value: `{"orgId":"${request.event.organization.id}","orgName":"${request.event.organization.name}","userStore":"${request.event.userStore.name}"}`
+        }
+    });
+    
+    // Add custom claims based on user ID pattern or other logic
+    if isServiceAccount(userId) {
+        operations.push({
+            op: "add", 
+            path: "/accessToken/claims/-",
+            value: {
+                name: "accountType",
+                value: "SERVICE_ACCOUNT"
+            }
+        });
+        
+        // Add service account specific scopes
+        operations.push({
+            op: "add",
+            path: "/accessToken/scopes/-",
+            value: "internal_api_access"
+        });
+    } else {
+        operations.push({
+            op: "add",
+            path: "/accessToken/claims/-", 
+            value: {
+                name: "accountType",
+                value: "USER_ACCOUNT"
+            }
+        });
+    }
+    
+    // Add request context information
+    operations.push({
+        op: "add",
+        path: "/accessToken/claims/-",
+        value: {
+            name: "requestContext", 
+            value: `{"clientId":"${request.event.request.clientId}","grantType":"${request.event.request.grantType}"}`
+        }
+    });
+
+    return {
+        actionStatus: "SUCCESS",
+        operations: operations
+    };
+}
+
+// Helper function to extract issuer from existing claims
+function extractIssuer(Claim[]? claims) returns string|error {
+    if claims is () {
+        return error("No claims found in access token");
+    }
+    
+    foreach Claim claim in claims {
+        if claim.name == "iss" {
+            return claim.value.toString();
+        }
+    }
+    
+    return error("Issuer claim not found in access token");
+}
+
+// Helper function to check if user ID belongs to a service account
+function isServiceAccount(string userId) returns boolean {
+    // Example logic: service accounts might have specific patterns
+    // You can customize this based on your user ID naming conventions
+    return userId.startsWith("svc_") || userId.endsWith("-service");
+}
+
+// Helper function to generate validation timestamp
+function generateValidationData(string userId) returns map<anydata> {
+    string timestamp = time:utcToString(time:utcNow());
+    string validationId = checkpanic uuid:createType1UUID();
+    
+    return {
+        userId: userId,
+        validatedAt: timestamp,
+        validationId: validationId,
+        system: "pre-issue-token-service"
+    };
+}
+
+// Main function
+public function main() {
+    log:printInfo("WSO2 Pre-Issue Access Token Service started");
+    log:printInfo("Service endpoint: http://localhost:" + SERVICE_PORT.toString() + SERVICE_ENDPOINT);
 }
