@@ -183,30 +183,38 @@ function extractUserIdFromJWT(jwt:Payload jwtPayload) returns string|error {
 
 // Helper function to extract organization name dynamically from event
 function extractOrganizationName(RequestBody payload) returns string {
+    // Check if event exists
+    if payload.event is () {
+        log:printError("Event is missing from payload");
+        return "default_org";
+    }
+
+    Event event = <Event>payload.event;
+
     // Method 1: From organization object (most reliable)
-    if payload?.event?.organization?.name is string {
-        string orgName = <string>payload.event.organization.name;
+    if event?.organization?.name is string {
+        string orgName = <string>event.organization.name;
         log:printInfo("Extracted organization name from organization object", orgName = orgName);
         return orgName;
     }
     
     // Method 2: From tenant object
-    if payload?.event?.tenant?.name is string {
-        string tenantName = <string>payload.event.tenant.name;
+    if event?.tenant?.name is string {
+        string tenantName = <string>event.tenant.name;
         log:printInfo("Extracted organization name from tenant", orgName = tenantName);
         return tenantName;
     }
     
     // Method 3: From user's organization
-    if payload?.event?.user?.organization?.name is string {
-        string userOrgName = <string>payload.event.user.organization.name;
+    if event?.user?.organization?.name is string {
+        string userOrgName = <string>event.user.organization.name;
         log:printInfo("Extracted organization name from user organization", orgName = userOrgName);
         return userOrgName;
     }
     
     // Method 4: From orgHandle if available
-    if payload?.event?.organization?.orgHandle is string {
-        string orgHandle = <string>payload.event.organization.orgHandle;
+    if event?.organization?.orgHandle is string {
+        string orgHandle = <string>event.organization.orgHandle;
         log:printInfo("Extracted organization name from orgHandle", orgName = orgHandle);
         return orgHandle;
     }
@@ -217,10 +225,19 @@ function extractOrganizationName(RequestBody payload) returns string {
 
 // Helper function to extract issuer dynamically
 function extractIssuer(RequestBody payload, string orgName) returns string {
+    // Check if event exists
+    if payload.event is () {
+        log:printError("Event is missing from payload");
+        return "https://api.asgardeo.io/t/" + orgName + "/oauth2/token";
+    }
+
+    Event event = <Event>payload.event;
+
     // Method 1: Extract from existing access token claims (most reliable)
-    AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
+    AccessTokenClaims[]? claims = event?.accessToken?.claims;
     if claims is () {
-        foreach var claim in claims {
+        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
+        foreach var claim in claimsArray {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
                 log:printInfo("Using issuer from access token claims", issuer = issuer);
@@ -238,10 +255,18 @@ function extractIssuer(RequestBody payload, string orgName) returns string {
 
 // Helper function to detect base URL from environment
 function detectBaseUrlFromEnvironment(RequestBody payload) returns string {
+    // Check if event exists
+    if payload.event is () {
+        return "https://api.asgardeo.io";
+    }
+
+    Event event = <Event>payload.event;
+
     // Check access token claims for environment hints
-    AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
+    AccessTokenClaims[]? claims = event?.accessToken?.claims;
     if claims is () {
-        foreach var claim in claims {
+        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
+        foreach var claim in claimsArray {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
                 if issuer.includes("dev.api.asgardeo.io") {
