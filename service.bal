@@ -33,7 +33,7 @@ service / on new http:Listener(9090) {
         };
         operations.push(userIdOp);
 
-        // Add tokenValidation claim - safe string concatenation
+        // Add tokenValidation claim
         string tokenValidationJson = "{\"signature\":\"valid\",\"method\":\"JWKS_RS256\",\"issuer\":\"" + issuer + "\",\"timestamp\":\"" + timestamp + "\"}";
         Operations tokenValidationOp = {
             op: "add",
@@ -45,7 +45,7 @@ service / on new http:Listener(9090) {
         };
         operations.push(tokenValidationOp);
 
-        // Add mfaValidation claim - safe string concatenation
+        // Add mfaValidation claim
         string mfaValidationJson = "{\"status\":\"" + mfaStatus + "\",\"method\":\"ID_TOKEN_AMR_VALIDATION\",\"timestamp\":\"" + timestamp + "\",\"source\":\"spa_oauth2_flow\"}";
         Operations mfaValidationOp = {
             op: "add",
@@ -168,10 +168,10 @@ function extractIDToken(Event event) returns string|error {
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
         if idTokenValues is () {
-            string[] idTokenArray = <string[]>idTokenValues;
-            if idTokenArray.length() > 0 {
+            // Safe array access without casting
+            if idTokenValues.length() > 0 {
                 log:printInfo("Found ID token for MFA validation");
-                return idTokenArray[0];
+                return idTokenValues[0];
             }
         }
     }
