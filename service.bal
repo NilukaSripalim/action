@@ -192,29 +192,35 @@ function extractOrganizationName(RequestBody payload) returns string {
     Event event = <Event>payload.event;
 
     // Method 1: From organization object (most reliable)
-    if event.organization !is () && event.organization?.name is string {
-        string orgName = <string>event.organization.name;
+    Organization? organization = event.organization;
+    if organization is Organization && organization?.name is string {
+        string orgName = <string>organization.name;
         log:printInfo("Extracted organization name from organization object", orgName = orgName);
         return orgName;
     }
     
     // Method 2: From tenant object
-    if event.tenant !is () && event.tenant?.name is string {
-        string tenantName = <string>event.tenant.name;
+    Tenant? tenant = event.tenant;
+    if tenant is Tenant && tenant?.name is string {
+        string tenantName = <string>tenant.name;
         log:printInfo("Extracted organization name from tenant", orgName = tenantName);
         return tenantName;
     }
     
     // Method 3: From user's organization
-    if event.user !is () && event.user?.organization !is () && event.user.organization?.name is string {
-        string userOrgName = <string>event.user.organization.name;
-        log:printInfo("Extracted organization name from user organization", orgName = userOrgName);
-        return userOrgName;
+    User? user = event.user;
+    if user is User {
+        Organization? userOrg = user.organization;
+        if userOrg is Organization && userOrg?.name is string {
+            string userOrgName = <string>userOrg.name;
+            log:printInfo("Extracted organization name from user organization", orgName = userOrgName);
+            return userOrgName;
+        }
     }
     
     // Method 4: From orgHandle if available
-    if event.organization !is () && event.organization?.orgHandle is string {
-        string orgHandle = <string>event.organization.orgHandle;
+    if organization is Organization && organization?.orgHandle is string {
+        string orgHandle = <string>organization.orgHandle;
         log:printInfo("Extracted organization name from orgHandle", orgName = orgHandle);
         return orgHandle;
     }
@@ -234,8 +240,9 @@ function extractIssuer(RequestBody payload, string orgName) returns string {
     Event event = <Event>payload.event;
 
     // Method 1: Extract from existing access token claims (most reliable)
-    if event.accessToken !is () && event.accessToken?.claims !is () {
-        AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
+    AccessToken? accessToken = event.accessToken;
+    if accessToken is AccessToken && accessToken?.claims is () {
+        AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
         foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
@@ -262,8 +269,9 @@ function detectBaseUrlFromEnvironment(RequestBody payload) returns string {
     Event event = <Event>payload.event;
 
     // Check access token claims for environment hints
-    if event.accessToken !is () && event.accessToken?.claims !is () {
-        AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
+    AccessToken? accessToken = event.accessToken;
+    if accessToken is AccessToken && accessToken?.claims is () {
+        AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
         foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
