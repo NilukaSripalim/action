@@ -168,7 +168,6 @@ function extractIDToken(Event event) returns string|error {
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
         if idTokenValues is string[] {
-            // CORRECTED: Use array length property and index access without dots
             if idTokenValues.length > 0 {
                 log:printInfo("Found ID token for MFA validation");
                 return idTokenValues[0];
@@ -204,7 +203,6 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     log:printInfo("AMR methods found: " + amrMethods.toString());
     
     // Check if MFA was performed (more than one auth method)
-    // CORRECTED: Use array length property without dots
     if amrMethods.length > 1 {
         return "success";
     } else if amrMethods.length == 1 {
