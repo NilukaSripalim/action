@@ -219,13 +219,16 @@ function validateTokenSignature(RequestBody payload, string jwksEndpoint) return
     string idToken = idTokenResult;
     
     // Validate JWT signature using JWKS endpoint
-    jwt:ValidatorSignatureConfig signatureConfig = {
-        jwksConfig: {
-            url: jwksEndpoint
+    jwt:ValidatorConfig validatorConfig = {
+        issuer: extractIssuer(payload),
+        signatureConfig: {
+            jwksConfig: {
+                url: jwksEndpoint
+            }
         }
     };
     
-    jwt:Payload|error validationResult = jwt:validate(idToken, signatureConfig);
+    jwt:Payload|error validationResult = jwt:validate(idToken, validatorConfig);
     
     if validationResult is error {
         log:printError("ID token validation failed: " + validationResult.message());
@@ -328,7 +331,7 @@ function extractIDToken(Event event) returns string|error {
         return error("Request missing");
     }
 
-    Request request = <Event>event.request;
+    Request request = <Request>event.request;
     
     if request.additionalParams is () {
         return error("Additional params missing");
