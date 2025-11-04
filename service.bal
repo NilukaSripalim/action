@@ -58,7 +58,7 @@ service / on new http:Listener(9090) {
         operations.push(mfaValidationOp);
 
         SuccessResponse response = {
-            actionStatus: SUCCESS,
+            actionStatus: ActionStatus.SUCCESS,
             operations: operations
         };
         
@@ -168,10 +168,10 @@ function extractIDToken(Event event) returns string|error {
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
         if idTokenValues is string[] {
-            // FIXED: Use array index directly without dot notation
+            // CORRECTED: Use array index directly without dot notation
             if idTokenValues.length > 0 {
                 log:printInfo("Found ID token for MFA validation");
-                return idTokenValues[0];  // Fixed: removed the dot before [0]
+                return idTokenValues[0];  // CORRECTED: removed the dot before [0]
             }
         }
     }
@@ -204,7 +204,7 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     log:printInfo("AMR methods found: " + amrMethods.toString());
     
     // Check if MFA was performed (more than one auth method)
-    // FIXED: Use array index directly without dot notation
+    // CORRECTED: Use array length property directly
     if amrMethods.length > 1 {
         return "success";
     } else if amrMethods.length == 1 {
