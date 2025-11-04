@@ -133,12 +133,17 @@ function extractJWT(RequestBody payload) returns string|error {
         return error("Required parameters for JWT validation are missing");
     }
 
-    foreach var param in requestParams {
+    foreach RequestParams param in requestParams {
         if param?.name == "id_token" || param?.name == "access_token" {
-            if param?.value is () || param.value.length() == 0 {
+            if param?.value is () {
                 return error("JWT token value is empty");
             }
-            return param.value[0];
+            // Safe access to the value array
+            string[] valueArray = <string[]>param.value;
+            if valueArray.length() == 0 {
+                return error("JWT token value is empty");
+            }
+            return valueArray[0];
         }
     }
 
@@ -178,7 +183,9 @@ function extractIssuer(RequestBody payload) returns string {
     // Try to get issuer from access token claims first
     AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
     if claims is () {
-        foreach var claim in claims {
+        // Safe iteration with type assertion
+        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
+        foreach var claim in claimsArray {
             if claim?.name == "iss" && claim?.value is string {
                 return <string>claim.value;
             }
@@ -186,10 +193,14 @@ function extractIssuer(RequestBody payload) returns string {
     }
 
     // Fallback to organization-based URL
-    string orgName = payload.event?.organization?.name ?: 
-                    payload.event?.tenant?.name ?: 
-                    payload.event?.user?.organization?.name ?: 
-                    "orge2ecucasesuschoreogrp4";
+    string orgName = "orge2ecucasesuschoreogrp4";
+    if payload.event?.organization?.name is string {
+        orgName = <string>payload.event.organization.name;
+    } else if payload.event?.tenant?.name is string {
+        orgName = <string>payload.event.tenant.name;
+    } else if payload.event?.user?.organization?.name is string {
+        orgName = <string>payload.event.user.organization.name;
+    }
 
     return "https://dev.api.asgardeo.io/t/" + orgName + "/oauth2/token";
 }
