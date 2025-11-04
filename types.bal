@@ -1,4 +1,4 @@
-// types.bal
+// types.bal - CORRECTED VERSION
 
 // Enums
 public enum ActionTypes {
@@ -11,7 +11,7 @@ public enum ActionStatus {
     ERROR
 }
 
-// Request types
+// Request types - UPDATED to match WSO2 actual structure
 public type RequestBody record {
     string requestId?;
     ActionTypes actionType;
@@ -33,19 +33,20 @@ public type Request record {
     string grantType?;
     string clientId?;
     string[] scopes?;
-    RequestHeaders[] additionalHeaders?;
-    RequestParams[] additionalParams?;
+    map<string[]> additionalHeaders?;  // CHANGED: from RequestHeaders[] to map<string[]>
+    map<string[]> additionalParams?;   // CHANGED: from RequestParams[] to map<string[]>
 };
 
-public type RequestParams record {
-    string name?;
-    string[] value?;
-};
-
-public type RequestHeaders record {
-    string name?;
-    string[] value?;
-};
+// REMOVE these types - WSO2 doesn't use them
+// public type RequestParams record {
+//     string name?;
+//     string[] value?;
+// };
+//
+// public type RequestHeaders record {
+//     string name?;
+//     string[] value?;
+// };
 
 public type User record {
     string id?;
@@ -129,10 +130,4 @@ public type MFAValidationRecord record {|
     string status;
     string method;
     string timestamp;
-|};
-
-// JWT Configuration type for the new extraction method
-public type JWTConfig record {|
-    string jwtIssuer;
-    string jwksEndpoint;
 |};
