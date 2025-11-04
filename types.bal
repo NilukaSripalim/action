@@ -64,22 +64,32 @@ public type AccessToken record {
 };
 
 public type RefreshToken record {
-    AccessTokenClaims[] claims?;
+    RefreshTokenClaims[] claims?;
 };
 
+// Claims can have different value types per Asgardeo spec
 public type AccessTokenClaims record {
     string name?;
     string|int|boolean|string[] value?;
 };
 
-// Operation types
+// Refresh token claims are similar but typically simpler
+public type RefreshTokenClaims record {
+    string name?;
+    string|int value?;
+};
+
+// Operation types - Updated to support flexible value types
 public type Operations record {
     string op;
     string path;
-    record {|
-        string name;
-        string value;
-    |} value;
+    ClaimValue value;
+};
+
+// Flexible claim value type for operations
+public type ClaimValue record {
+    string name;
+    string|int|boolean|string[] value;
 };
 
 public type AllowedOperation record {
