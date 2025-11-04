@@ -16,7 +16,7 @@ auth:FileUserStoreConfig fileUserStoreConfig = {};
 }
 service / on new http:Listener(9092) {
 
-    resource function post [choreo-mfa-validation](@http:Payload RequestBody payload) returns SuccessResponse|ErrorResponse|http:InternalServerError {
+    resource function post 'actionCuCaseChoreoMFAValidation(@http:Payload RequestBody payload) returns SuccessResponse|ErrorResponse|http:InternalServerError {
         if enabledDebugLog {
             log:printDebug("Received payload: " + payload.toJsonString());
         }
