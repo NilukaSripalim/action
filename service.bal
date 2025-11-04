@@ -192,28 +192,28 @@ function extractOrganizationName(RequestBody payload) returns string {
     Event event = <Event>payload.event;
 
     // Method 1: From organization object (most reliable)
-    if event.organization is () && event.organization?.name is string {
+    if event.organization !is () && event.organization?.name is string {
         string orgName = <string>event.organization.name;
         log:printInfo("Extracted organization name from organization object", orgName = orgName);
         return orgName;
     }
     
     // Method 2: From tenant object
-    if event.tenant is () && event.tenant?.name is string {
+    if event.tenant !is () && event.tenant?.name is string {
         string tenantName = <string>event.tenant.name;
         log:printInfo("Extracted organization name from tenant", orgName = tenantName);
         return tenantName;
     }
     
     // Method 3: From user's organization
-    if event.user is () && event.user?.organization is () && event.user.organization?.name is string {
+    if event.user !is () && event.user?.organization !is () && event.user.organization?.name is string {
         string userOrgName = <string>event.user.organization.name;
         log:printInfo("Extracted organization name from user organization", orgName = userOrgName);
         return userOrgName;
     }
     
     // Method 4: From orgHandle if available
-    if event.organization is () && event.organization?.orgHandle is string {
+    if event.organization !is () && event.organization?.orgHandle is string {
         string orgHandle = <string>event.organization.orgHandle;
         log:printInfo("Extracted organization name from orgHandle", orgName = orgHandle);
         return orgHandle;
@@ -234,7 +234,7 @@ function extractIssuer(RequestBody payload, string orgName) returns string {
     Event event = <Event>payload.event;
 
     // Method 1: Extract from existing access token claims (most reliable)
-    if event.accessToken is () && event.accessToken?.claims is () {
+    if event.accessToken !is () && event.accessToken?.claims !is () {
         AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
         foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
@@ -262,7 +262,7 @@ function detectBaseUrlFromEnvironment(RequestBody payload) returns string {
     Event event = <Event>payload.event;
 
     // Check access token claims for environment hints
-    if event.accessToken is () && event.accessToken?.claims is () {
+    if event.accessToken !is () && event.accessToken?.claims !is () {
         AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
         foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
