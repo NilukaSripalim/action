@@ -3,21 +3,26 @@ import ballerina/log;
 import ballerina/time;
 import ballerina/jwt;
 
-configurable string JWKS_ENDPOINT = "https://dev.api.asgardeo.io/t/orge2ecucasesuschoreogrp4/oauth2/token/jwks";
-configurable string EXPECTED_ISSUER = "https://dev.api.asgardeo.io/t/orge2ecucasesuschoreogrp4/oauth2/token";
-
 service / on new http:Listener(9090) {
 
     resource function post actionchoreomfavalidation(@http:Payload RequestBody payload) returns SuccessResponse|ErrorResponse {
         log:printInfo("Received SPA pre-issue token request");
         
+        // Extract issuer dynamically from payload
+        string issuer = extractIssuer(payload);
+        
+        // Generate JWKS endpoint from issuer (standard Asgardeo pattern)
+        string jwksEndpoint = generateJWKSEndpoint(issuer);
+        
         // Extract user ID from the standard OAuth2 flow
         string userId = extractUserId(payload);
-        string issuer = extractIssuer(payload);
+        
+        // Validate MFA from ID token (SPA flow)
         string mfaStatus = validateMFAFromIDToken(payload);
+        
         string timestamp = time:utcToString(time:utcNow());
 
-        log:printInfo("Processing SPA request - User: " + userId + ", MFA: " + mfaStatus);
+        log:printInfo(string `Processing SPA request - User: ${userId}, MFA: ${mfaStatus}, Issuer: ${issuer}`);
 
         // Create operations
         Operations[] operations = [];
@@ -33,8 +38,8 @@ service / on new http:Listener(9090) {
         };
         operations.push(userIdOp);
 
-        // Add tokenValidation claim
-        string tokenValidationJson = "{\"signature\":\"valid\",\"method\":\"JWKS_RS256\",\"issuer\":\"" + issuer + "\",\"timestamp\":\"" + timestamp + "\"}";
+        // Add tokenValidation claim with dynamic issuer and JWKS endpoint
+        string tokenValidationJson = string `{"signature":"valid","method":"JWKS_RS256","issuer":"${issuer}","jwksEndpoint":"${jwksEndpoint}","timestamp":"${timestamp}"}`;
         Operations tokenValidationOp = {
             op: "add",
             path: "/accessToken/claims/-",
@@ -46,7 +51,7 @@ service / on new http:Listener(9090) {
         operations.push(tokenValidationOp);
 
         // Add mfaValidation claim
-        string mfaValidationJson = "{\"status\":\"" + mfaStatus + "\",\"method\":\"ID_TOKEN_AMR_VALIDATION\",\"timestamp\":\"" + timestamp + "\",\"source\":\"spa_oauth2_flow\"}";
+        string mfaValidationJson = string `{"status":"${mfaStatus}","method":"ID_TOKEN_AMR_VALIDATION","timestamp":"${timestamp}","source":"spa_oauth2_flow"}`;
         Operations mfaValidationOp = {
             op: "add",
             path: "/accessToken/claims/-",
@@ -56,6 +61,20 @@ service / on new http:Listener(9090) {
             }
         };
         operations.push(mfaValidationOp);
+
+        // Add organization/tenant metadata for reference
+        string? tenantName = extractTenantName(payload);
+        if tenantName is string {
+            Operations tenantOp = {
+                op: "add",
+                path: "/accessToken/claims/-",
+                value: {
+                    name: "tenantName",
+                    value: tenantName
+                }
+            };
+            operations.push(tenantOp);
+        }
 
         SuccessResponse response = {
             actionStatus: SUCCESS,
@@ -75,7 +94,7 @@ function extractUserId(RequestBody payload) returns string {
 
     Event event = <Event>payload.event;
     
-    // Method 1: From user object
+    // Method 1: From user object (most reliable for SPA authorization_code flow)
     if event.user is User {
         User user = <User>event.user;
         if user?.id is string {
@@ -104,27 +123,75 @@ function extractUserId(RequestBody payload) returns string {
     return "spa-unknown-user";
 }
 
-// Extract issuer
+// Extract issuer dynamically from payload (always available in Asgardeo pre-issue action)
 function extractIssuer(RequestBody payload) returns string {
     if payload.event is () {
-        return EXPECTED_ISSUER;
+        log:printError("No event in payload - invalid request");
+        return "";
     }
 
     Event event = <Event>payload.event;
     
+    // Extract issuer from access token claims (always present in Asgardeo)
     if event.accessToken is AccessToken {
         AccessToken accessToken = <AccessToken>event.accessToken;
         if accessToken?.claims is AccessTokenClaims[] {
             AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "iss" && claim?.value is string {
-                    return <string>claim.value;
+                    string issuer = <string>claim.value;
+                    log:printInfo("Extracted issuer from access token: " + issuer);
+                    return issuer;
                 }
             }
         }
     }
     
-    return EXPECTED_ISSUER;
+    log:printError("Could not extract issuer from payload - invalid Asgardeo request");
+    return "";
+}
+
+// Generate JWKS endpoint from issuer (standard Asgardeo pattern)
+function generateJWKSEndpoint(string issuer) returns string {
+    // Standard Asgardeo pattern: issuer URL + /jwks
+    // Example: https://dev.api.asgardeo.io/t/org123/oauth2/token -> https://dev.api.asgardeo.io/t/org123/oauth2/token/jwks
+    
+    if issuer.endsWith("/token") {
+        string jwksEndpoint = issuer + "/jwks";
+        log:printInfo("Generated JWKS endpoint: " + jwksEndpoint);
+        return jwksEndpoint;
+    }
+    
+    // Fallback if issuer doesn't end with /token
+    log:printWarn("Issuer doesn't match expected pattern, using default JWKS endpoint");
+    return DEFAULT_JWKS_ENDPOINT;
+}
+
+// Extract tenant name from payload
+function extractTenantName(RequestBody payload) returns string? {
+    if payload.event is () {
+        return ();
+    }
+
+    Event event = <Event>payload.event;
+    
+    // Try to get organization name first (more specific for B2B scenarios)
+    if event.organization is Organization {
+        Organization org = <Organization>event.organization;
+        if org?.name is string {
+            return <string>org.name;
+        }
+    }
+    
+    // Fall back to tenant name
+    if event.tenant is Tenant {
+        Tenant tenant = <Tenant>event.tenant;
+        if tenant?.name is string {
+            return <string>tenant.name;
+        }
+    }
+    
+    return ();
 }
 
 // Validate MFA status from ID token in SPA flow
@@ -147,7 +214,25 @@ function validateMFAFromIDToken(RequestBody payload) returns string {
         return "success";
     }
     
+    // Check grant type - for SPA, authorization_code with MFA should have ID token
+    string grantType = extractGrantType(event);
+    if grantType == "authorization_code" {
+        log:printWarn("Authorization code grant without ID token - MFA status uncertain");
+        return "id_token_missing";
+    }
+    
     return "single_factor";
+}
+
+// Extract grant type
+function extractGrantType(Event event) returns string {
+    if event.request is Request {
+        Request request = <Request>event.request;
+        if request?.grantType is string {
+            return <string>request.grantType;
+        }
+    }
+    return "unknown";
 }
 
 // Extract ID token from SPA OAuth2 additionalParams
@@ -191,7 +276,7 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     
     [jwt:Header, jwt:Payload] [_, jwtPayload] = decodeResult;
     
-    // Extract AMR claim
+    // Extract AMR claim (Authentication Methods References)
     anydata amrValue = jwtPayload.get("amr");
     string[] amrMethods = [];
     
@@ -212,12 +297,16 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     log:printInfo("AMR methods found: [" + amrString + "]");
     
     // Check if MFA was performed (more than one auth method)
+    // Common AMR values: pwd (password), otp (one-time password), totp, sms, etc.
     int amrLength = amrMethods.length();
     if amrLength > 1 {
+        log:printInfo("MFA detected: Multiple authentication methods used");
         return "success";
     } else if amrLength == 1 {
+        log:printInfo("Single factor authentication detected");
         return "single_factor";
     } else {
+        log:printWarn("No AMR claim found in ID token");
         return "no_amr";
     }
 }
