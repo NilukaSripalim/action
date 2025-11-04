@@ -5,7 +5,7 @@ import ballerina/log;
 import ballerina/time;
 
 configurable boolean enabledDebugLog = false;
-configurable string certFilePath = ?;
+// Remove the certFilePath configurable since we'll use JWKS dynamically
 auth:FileUserStoreConfig fileUserStoreConfig = {};
 
 @http:ServiceConfig {
@@ -46,8 +46,12 @@ service / on new http:Listener(9092) {
         }
         string jwtToken = jwtResult;
 
-        // Validate JWT
-        jwt:Payload|error validationResult = validateJWT(jwtToken);
+        // Extract issuer from event to get JWKS endpoint
+        string issuer = extractIssuerForValidation(payload);
+        string jwksEndpoint = issuer + "/jwks"; // Standard JWKS endpoint
+
+        // Validate JWT with dynamic JWKS
+        jwt:Payload|error validationResult = validateJWTWithJWKS(jwtToken, jwksEndpoint);
         if validationResult is error {
             ErrorResponse errorResp = {
                 actionStatus: ERROR,
@@ -75,8 +79,8 @@ service / on new http:Listener(9092) {
         // Extract organization name dynamically
         string orgName = extractOrganizationName(payload);
         
-        // Extract issuer dynamically from the request
-        string issuer = extractIssuer(payload, orgName);
+        // Extract issuer for the response (might be different from validation issuer)
+        string responseIssuer = extractIssuer(payload, orgName);
 
         string timestamp = time:utcToString(time:utcNow());
 
@@ -100,7 +104,7 @@ service / on new http:Listener(9092) {
                         value: {
                             signature: "valid",
                             method: "JWKS_RS256",
-                            issuer: issuer,
+                            issuer: responseIssuer,
                             timestamp: timestamp
                         }
                     }
@@ -153,13 +157,15 @@ function extractJWT(RequestBody payload) returns string|error {
     return error("JWT token not found in additional parameters");
 }
 
-// Helper function to validate JWT
-function validateJWT(string jwtToken) returns jwt:Payload|error {
+// Helper function to validate JWT with dynamic JWKS
+function validateJWTWithJWKS(string jwtToken, string jwksEndpoint) returns jwt:Payload|error {
     jwt:ValidatorConfig validatorConfig = {
         issuer: "wso2",
         clockSkew: 60,
         signatureConfig: {
-            certFile: certFilePath
+            jwksConfig: {
+                url: jwksEndpoint
+            }
         }
     };
 
@@ -179,6 +185,37 @@ function extractUserIdFromJWT(jwt:Payload jwtPayload) returns string|error {
     }
 
     return userIdValue.toString();
+}
+
+// Helper function to extract issuer for JWT validation (from access token claims)
+function extractIssuerForValidation(RequestBody payload) returns string {
+    // Check if event exists
+    if payload.event is () {
+        log:printError("Event is missing from payload");
+        return "https://api.asgardeo.io/t/default_org/oauth2/token";
+    }
+
+    Event event = <Event>payload.event;
+
+    // Extract from existing access token claims (most reliable)
+    AccessToken? accessToken = event.accessToken;
+    if accessToken is AccessToken && accessToken?.claims is () {
+        AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
+        foreach var claim in claims {
+            if claim?.name == "iss" && claim?.value is string {
+                string issuer = <string>claim.value;
+                log:printInfo("Using issuer from access token claims for validation", issuer = issuer);
+                return issuer;
+            }
+        }
+    }
+
+    // Fallback: Construct from organization
+    string orgName = extractOrganizationName(payload);
+    string baseUrl = detectBaseUrlFromEnvironment(payload);
+    string issuer = baseUrl + "/t/" + orgName + "/oauth2/token";
+    log:printInfo("Constructed issuer for validation", issuer = issuer);
+    return issuer;
 }
 
 // Helper function to extract organization name dynamically from event
@@ -229,7 +266,7 @@ function extractOrganizationName(RequestBody payload) returns string {
     return "default_org";
 }
 
-// Helper function to extract issuer dynamically
+// Helper function to extract issuer for response
 function extractIssuer(RequestBody payload, string orgName) returns string {
     // Check if event exists
     if payload.event is () {
@@ -246,7 +283,7 @@ function extractIssuer(RequestBody payload, string orgName) returns string {
         foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
-                log:printInfo("Using issuer from access token claims", issuer = issuer);
+                log:printInfo("Using issuer from access token claims for response", issuer = issuer);
                 return issuer;
             }
         }
@@ -255,7 +292,7 @@ function extractIssuer(RequestBody payload, string orgName) returns string {
     // Method 2: Construct from organization and environment detection
     string baseUrl = detectBaseUrlFromEnvironment(payload);
     string issuer = baseUrl + "/t/" + orgName + "/oauth2/token";
-    log:printInfo("Constructed issuer from organization and environment", issuer = issuer);
+    log:printInfo("Constructed issuer for response", issuer = issuer);
     return issuer;
 }
 
