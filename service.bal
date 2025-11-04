@@ -30,7 +30,7 @@ service / on new http:Listener(9092) {
                 errorDescription: "Support is available only for the PRE_ISSUE_ACCESS_TOKEN action type"
             };
             log:printError("Invalid action type received: " + payload.actionType.toString());
-            return <ErrorResponse>errorResp;
+            return errorResp;
         }
 
         // Extract and validate JWT
@@ -42,7 +42,7 @@ service / on new http:Listener(9092) {
                 errorDescription: jwtResult.message()
             };
             log:printError("JWT extraction failed: " + jwtResult.message());
-            return <ErrorResponse>errorResp;
+            return errorResp;
         }
         string jwtToken = jwtResult;
 
@@ -55,7 +55,7 @@ service / on new http:Listener(9092) {
                 errorDescription: validationResult.message()
             };
             log:printError("JWT validation failed: " + validationResult.message());
-            return <ErrorResponse>errorResp;
+            return errorResp;
         }
         jwt:Payload jwtPayload = validationResult;
 
@@ -68,12 +68,14 @@ service / on new http:Listener(9092) {
                 errorDescription: userIdResult.message()
             };
             log:printError("User ID extraction failed: " + userIdResult.message());
-            return <ErrorResponse>errorResp;
+            return errorResp;
         }
         string userId = userIdResult;
 
         // Extract issuer dynamically from the request
         string issuer = extractIssuer(payload);
+
+        string timestamp = time:utcToString(time:utcNow());
 
         // Create success response with all required operations
         SuccessResponse successResp = {
@@ -96,7 +98,7 @@ service / on new http:Listener(9092) {
                             signature: "valid",
                             method: "JWKS_RS256",
                             issuer: issuer,
-                            timestamp: time:utcToString(time:utcNow())
+                            timestamp: timestamp
                         }
                     }
                 },
@@ -108,7 +110,7 @@ service / on new http:Listener(9092) {
                         value: {
                             status: "success",
                             method: "ID_TOKEN_AMR_VALIDATION",
-                            timestamp: time:utcToString(time:utcNow())
+                            timestamp: timestamp
                         }
                     }
                 }
@@ -119,7 +121,7 @@ service / on new http:Listener(9092) {
             log:printDebug("Success response: " + successResp.toJsonString());
         }
 
-        return <SuccessResponse>successResp;
+        return successResp;
     }
 }
 
