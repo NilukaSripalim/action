@@ -1,3 +1,5 @@
+// types.bal
+
 // Enums
 public enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
