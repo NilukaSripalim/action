@@ -133,12 +133,12 @@ function extractJWT(RequestBody payload) returns string|error {
         return error("Required parameters for JWT validation are missing");
     }
 
-    foreach RequestParams param in requestParams {
+    RequestParams[] paramsArray = <RequestParams[]>requestParams;
+    foreach RequestParams param in paramsArray {
         if param?.name == "id_token" || param?.name == "access_token" {
             if param?.value is () {
                 return error("JWT token value is empty");
             }
-            // Safe access to the value array
             string[] valueArray = <string[]>param.value;
             if valueArray.length() == 0 {
                 return error("JWT token value is empty");
@@ -180,10 +180,9 @@ function extractUserIdFromJWT(jwt:Payload jwtPayload) returns string|error {
 
 // Helper function to extract issuer dynamically
 function extractIssuer(RequestBody payload) returns string {
-    // Try to get issuer from access token claims first
+    // Method 1: Extract from existing access token claims (most reliable)
     AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
     if claims is () {
-        // Safe iteration with type assertion
         AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
         foreach var claim in claimsArray {
             if claim?.name == "iss" && claim?.value is string {
@@ -192,15 +191,70 @@ function extractIssuer(RequestBody payload) returns string {
         }
     }
 
-    // Fallback to organization-based URL
-    string orgName = "orge2ecucasesuschoreogrp4";
+    // Method 2: Construct from organization and environment detection
+    string orgName = extractOrganizationName(payload);
+    string baseUrl = detectBaseUrlFromEnvironment(payload);
+    
+    return baseUrl + "/t/" + orgName + "/oauth2/token";
+}
+
+// Helper function to extract organization name
+function extractOrganizationName(RequestBody payload) returns string {
     if payload.event?.organization?.name is string {
-        orgName = <string>payload.event.organization.name;
+        return <string>payload.event.organization.name;
     } else if payload.event?.tenant?.name is string {
-        orgName = <string>payload.event.tenant.name;
+        return <string>payload.event.tenant.name;
     } else if payload.event?.user?.organization?.name is string {
-        orgName = <string>payload.event.user.organization.name;
+        return <string>payload.event.user.organization.name;
+    }
+    return "orge2ecucasesuschoreogrp4";
+}
+
+// Helper function to detect base URL from environment
+function detectBaseUrlFromEnvironment(RequestBody payload) returns string {
+    // Check access token claims for environment hints
+    AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
+    if claims is () {
+        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
+        foreach var claim in claimsArray {
+            if claim?.name == "iss" && claim?.value is string {
+                string issuer = <string>claim.value;
+                if issuer.contains("dev.api.asgardeo.io") {
+                    return "https://dev.api.asgardeo.io";
+                } else if issuer.contains("stage.api.asgardeo.io") {
+                    return "https://stage.api.asgardeo.io";
+                } else if issuer.contains("api.asgardeo.io") && !issuer.contains("dev.") && !issuer.contains("stage.") {
+                    return "https://api.asgardeo.io";
+                } else if issuer.contains("localhost") {
+                    return "https://localhost:9443";
+                }
+            }
+        }
     }
 
-    return "https://dev.api.asgardeo.io/t/" + orgName + "/oauth2/token";
+    // Check request host headers for environment detection
+    RequestHeaders[]? headers = payload.event?.request?.additionalHeaders;
+    if headers is () {
+        RequestHeaders[] headersArray = <RequestHeaders[]>headers;
+        foreach var header in headersArray {
+            if header?.name == "host" && header?.value is () {
+                string[] valueArray = <string[]>header.value;
+                if valueArray.length() > 0 {
+                    string host = valueArray[0];
+                    if host.contains("dev.") {
+                        return "https://dev.api.asgardeo.io";
+                    } else if host.contains("stage.") {
+                        return "https://stage.api.asgardeo.io";
+                    } else if host.contains("asgardeo.io") && !host.contains("dev.") && !host.contains("stage.") {
+                        return "https://api.asgardeo.io";
+                    } else if host.contains("localhost") {
+                        return "https://localhost:9443";
+                    }
+                }
+            }
+        }
+    }
+
+    // Default to production environment
+    return "https://api.asgardeo.io";
 }
