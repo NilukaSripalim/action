@@ -72,8 +72,11 @@ service / on new http:Listener(9092) {
         }
         string userId = userIdResult;
 
+        // Extract organization name dynamically
+        string orgName = extractOrganizationName(payload);
+        
         // Extract issuer dynamically from the request
-        string issuer = extractIssuer(payload);
+        string issuer = extractIssuer(payload, orgName);
 
         string timestamp = time:utcToString(time:utcNow());
 
@@ -178,36 +181,59 @@ function extractUserIdFromJWT(jwt:Payload jwtPayload) returns string|error {
     return userIdValue.toString();
 }
 
+// Helper function to extract organization name dynamically from event
+function extractOrganizationName(RequestBody payload) returns string {
+    // Method 1: From organization object (most reliable)
+    if payload?.event?.organization?.name is string {
+        string orgName = <string>payload.event.organization.name;
+        log:printInfo("Extracted organization name from organization object", orgName = orgName);
+        return orgName;
+    }
+    
+    // Method 2: From tenant object
+    if payload?.event?.tenant?.name is string {
+        string tenantName = <string>payload.event.tenant.name;
+        log:printInfo("Extracted organization name from tenant", orgName = tenantName);
+        return tenantName;
+    }
+    
+    // Method 3: From user's organization
+    if payload?.event?.user?.organization?.name is string {
+        string userOrgName = <string>payload.event.user.organization.name;
+        log:printInfo("Extracted organization name from user organization", orgName = userOrgName);
+        return userOrgName;
+    }
+    
+    // Method 4: From orgHandle if available
+    if payload?.event?.organization?.orgHandle is string {
+        string orgHandle = <string>payload.event.organization.orgHandle;
+        log:printInfo("Extracted organization name from orgHandle", orgName = orgHandle);
+        return orgHandle;
+    }
+    
+    log:printError("Could not extract organization name from event data");
+    return "default_org";
+}
+
 // Helper function to extract issuer dynamically
-function extractIssuer(RequestBody payload) returns string {
+function extractIssuer(RequestBody payload, string orgName) returns string {
     // Method 1: Extract from existing access token claims (most reliable)
     AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
     if claims is () {
-        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
-        foreach var claim in claimsArray {
+        foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
-                return <string>claim.value;
+                string issuer = <string>claim.value;
+                log:printInfo("Using issuer from access token claims", issuer = issuer);
+                return issuer;
             }
         }
     }
 
     // Method 2: Construct from organization and environment detection
-    string orgName = extractOrganizationName(payload);
     string baseUrl = detectBaseUrlFromEnvironment(payload);
-    
-    return baseUrl + "/t/" + orgName + "/oauth2/token";
-}
-
-// Helper function to extract organization name
-function extractOrganizationName(RequestBody payload) returns string {
-    if payload.event?.organization?.name is string {
-        return <string>payload.event.organization.name;
-    } else if payload.event?.tenant?.name is string {
-        return <string>payload.event.tenant.name;
-    } else if payload.event?.user?.organization?.name is string {
-        return <string>payload.event.user.organization.name;
-    }
-    return "orge2ecucasesuschoreogrp4";
+    string issuer = baseUrl + "/t/" + orgName + "/oauth2/token";
+    log:printInfo("Constructed issuer from organization and environment", issuer = issuer);
+    return issuer;
 }
 
 // Helper function to detect base URL from environment
@@ -215,41 +241,17 @@ function detectBaseUrlFromEnvironment(RequestBody payload) returns string {
     // Check access token claims for environment hints
     AccessTokenClaims[]? claims = payload.event?.accessToken?.claims;
     if claims is () {
-        AccessTokenClaims[] claimsArray = <AccessTokenClaims[]>claims;
-        foreach var claim in claimsArray {
+        foreach var claim in claims {
             if claim?.name == "iss" && claim?.value is string {
                 string issuer = <string>claim.value;
-                if issuer.contains("dev.api.asgardeo.io") {
+                if issuer.includes("dev.api.asgardeo.io") {
                     return "https://dev.api.asgardeo.io";
-                } else if issuer.contains("stage.api.asgardeo.io") {
+                } else if issuer.includes("stage.api.asgardeo.io") {
                     return "https://stage.api.asgardeo.io";
-                } else if issuer.contains("api.asgardeo.io") && !issuer.contains("dev.") && !issuer.contains("stage.") {
+                } else if issuer.includes("api.asgardeo.io") && !issuer.includes("dev.") && !issuer.includes("stage.") {
                     return "https://api.asgardeo.io";
-                } else if issuer.contains("localhost") {
+                } else if issuer.includes("localhost") {
                     return "https://localhost:9443";
-                }
-            }
-        }
-    }
-
-    // Check request host headers for environment detection
-    RequestHeaders[]? headers = payload.event?.request?.additionalHeaders;
-    if headers is () {
-        RequestHeaders[] headersArray = <RequestHeaders[]>headers;
-        foreach var header in headersArray {
-            if header?.name == "host" && header?.value is () {
-                string[] valueArray = <string[]>header.value;
-                if valueArray.length() > 0 {
-                    string host = valueArray[0];
-                    if host.contains("dev.") {
-                        return "https://dev.api.asgardeo.io";
-                    } else if host.contains("stage.") {
-                        return "https://stage.api.asgardeo.io";
-                    } else if host.contains("asgardeo.io") && !host.contains("dev.") && !host.contains("stage.") {
-                        return "https://api.asgardeo.io";
-                    } else if host.contains("localhost") {
-                        return "https://localhost:9443";
-                    }
                 }
             }
         }
