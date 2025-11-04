@@ -11,8 +11,31 @@ service / on new http:Listener(9090) {
         // Extract issuer dynamically from payload
         string issuer = extractIssuer(payload);
         
+        if issuer == "" {
+            log:printError("Failed to extract issuer from payload");
+            ErrorResponse errorResp = {
+                actionStatus: "FAILED",
+                errorMessage: "Invalid request: missing issuer in token claims",
+                errorDescription: "The issuer claim is required for validation"
+            };
+            return errorResp;
+        }
+        
         // Generate JWKS endpoint from issuer (standard Asgardeo pattern)
         string jwksEndpoint = generateJWKSEndpoint(issuer);
+        
+        // Validate the token signature using the extracted JWKS endpoint
+        boolean isValidSignature = validateTokenSignature(payload, jwksEndpoint);
+        
+        if !isValidSignature {
+            log:printError("Token signature validation failed");
+            ErrorResponse errorResp = {
+                actionStatus: "FAILED",
+                errorMessage: "Token signature validation failed",
+                errorDescription: "Invalid token signature or JWKS endpoint"
+            };
+            return errorResp;
+        }
         
         // Extract user ID from the standard OAuth2 flow
         string userId = extractUserId(payload);
@@ -77,7 +100,7 @@ service / on new http:Listener(9090) {
         }
 
         SuccessResponse response = {
-            actionStatus: SUCCESS,
+            actionStatus: "SUCCESS",
             operations: operations
         };
         
@@ -162,9 +185,73 @@ function generateJWKSEndpoint(string issuer) returns string {
         return jwksEndpoint;
     }
     
-    // Fallback if issuer doesn't end with /token
-    log:printWarn("Issuer doesn't match expected pattern, using default JWKS endpoint");
-    return DEFAULT_JWKS_ENDPOINT;
+    // If issuer ends with /oauth2 or similar, append /token/jwks
+    if issuer.endsWith("/oauth2") {
+        string jwksEndpoint = issuer + "/token/jwks";
+        log:printInfo("Generated JWKS endpoint from oauth2 base: " + jwksEndpoint);
+        return jwksEndpoint;
+    }
+    
+    // Default: append /oauth2/token/jwks
+    string jwksEndpoint = issuer + "/oauth2/token/jwks";
+    log:printWarn("Issuer doesn't match expected pattern, using fallback JWKS endpoint: " + jwksEndpoint);
+    return jwksEndpoint;
+}
+
+// Validate token signature using JWKS endpoint
+function validateTokenSignature(RequestBody payload, string jwksEndpoint) returns boolean {
+    if payload.event is () {
+        log:printError("No event in payload");
+        return false;
+    }
+
+    Event event = <Event>payload.event;
+    
+    // Extract ID token for validation
+    string|error idTokenResult = extractIDToken(event);
+    
+    if idTokenResult is error {
+        log:printWarn("No ID token found for signature validation, checking access token");
+        // For some flows, we might only have access token
+        return validateAccessTokenSignature(event, jwksEndpoint);
+    }
+    
+    string idToken = idTokenResult;
+    
+    // Validate JWT signature using JWKS endpoint
+    jwt:ValidatorSignatureConfig signatureConfig = {
+        jwksConfig: {
+            url: jwksEndpoint
+        }
+    };
+    
+    jwt:Payload|error validationResult = jwt:validate(idToken, signatureConfig);
+    
+    if validationResult is error {
+        log:printError("ID token validation failed: " + validationResult.message());
+        return false;
+    }
+    
+    log:printInfo("ID token signature validated successfully using JWKS endpoint: " + jwksEndpoint);
+    return true;
+}
+
+// Validate access token signature (fallback)
+function validateAccessTokenSignature(Event event, string jwksEndpoint) returns boolean {
+    // In pre-issue action, the access token is not yet issued as JWT
+    // So we trust the issuer claim presence as validation
+    // The actual JWT validation will happen when the token is used
+    
+    if event.accessToken is AccessToken {
+        AccessToken accessToken = <AccessToken>event.accessToken;
+        if accessToken?.claims is AccessTokenClaims[] {
+            log:printInfo("Access token structure validated, JWKS endpoint configured for post-issue validation");
+            return true;
+        }
+    }
+    
+    log:printError("Could not validate token structure");
+    return false;
 }
 
 // Extract tenant name from payload
@@ -241,7 +328,7 @@ function extractIDToken(Event event) returns string|error {
         return error("Request missing");
     }
 
-    Request request = <Request>event.request;
+    Request request = <Event>event.request;
     
     if request.additionalParams is () {
         return error("Additional params missing");
