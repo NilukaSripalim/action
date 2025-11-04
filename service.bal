@@ -76,7 +76,7 @@ function extractUserId(RequestBody payload) returns string {
     Event event = <Event>payload.event;
     
     // Method 1: From user object
-    if event.user is () {
+    if event.user is User {
         User user = <User>event.user;
         if user?.id is string {
             string userId = <string>user.id;
@@ -86,9 +86,9 @@ function extractUserId(RequestBody payload) returns string {
     }
     
     // Method 2: From access token claims (sub claim)
-    if event.accessToken is () {
+    if event.accessToken is AccessToken {
         AccessToken accessToken = <AccessToken>event.accessToken;
-        if accessToken?.claims is () {
+        if accessToken?.claims is AccessTokenClaims[] {
             AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "sub" && claim?.value is string {
@@ -112,9 +112,9 @@ function extractIssuer(RequestBody payload) returns string {
 
     Event event = <Event>payload.event;
     
-    if event.accessToken is () {
+    if event.accessToken is AccessToken {
         AccessToken accessToken = <AccessToken>event.accessToken;
-        if accessToken?.claims is () {
+        if accessToken?.claims is AccessTokenClaims[] {
             AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "iss" && claim?.value is string {
@@ -167,9 +167,9 @@ function extractIDToken(Event event) returns string|error {
     // Look for ID token in SPA OAuth2 flow
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
-        if idTokenValues is () {
-            // Safe array access without casting
-            if idTokenValues.length() > 0 {
+        if idTokenValues is string[] {
+            // Use .length instead of .length()
+            if idTokenValues.length > 0 {
                 log:printInfo("Found ID token for MFA validation");
                 return idTokenValues[0];
             }
@@ -204,9 +204,10 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     log:printInfo("AMR methods found: " + amrMethods.toString());
     
     // Check if MFA was performed (more than one auth method)
-    if amrMethods.length() > 1 {
+    // Use .length instead of .length()
+    if amrMethods.length > 1 {
         return "success";
-    } else if amrMethods.length() == 1 {
+    } else if amrMethods.length == 1 {
         return "single_factor";
     } else {
         return "no_amr";
@@ -216,10 +217,10 @@ function validateMFAFromJWTAMR(string idToken) returns string {
 // Check if MFA authenticators are present in the request
 function hasMFAAuthenticators(Event event) returns boolean {
     // Check request parameters for MFA indicators
-    if event.request is () {
+    if event.request is Request {
         Request request = <Request>event.request;
         
-        if request.additionalParams is () {
+        if request.additionalParams is map<string[]> {
             map<string[]> additionalParams = <map<string[]>>request.additionalParams;
             
             // Check for MFA-related parameters
