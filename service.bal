@@ -22,7 +22,7 @@ service / on new http:Listener(9090) {
         log:printInfo("MFA Methods: " + mfaResult.methods.toString());
 
         // Create success response
-        return {
+        SuccessResponse successResponse = {
             actionStatus: SUCCESS,
             operations: [
                 {
@@ -61,6 +61,8 @@ service / on new http:Listener(9090) {
                 }
             ]
         };
+        
+        return successResponse;
     }
 }
 
@@ -85,10 +87,10 @@ function validateMFAFromIDToken(RequestBody payload) returns MFAValidationResult
     Event event = <Event>payload.event;
     
     // Extract ID token from additionalParams
-    string? idToken = extractIDToken(event);
+    string|error idTokenResult = extractIDToken(event);
     
-    if idToken is string {
-        return validateMFAFromJWT(idToken);
+    if idTokenResult is string {
+        return validateMFAFromJWT(idTokenResult);
     }
     
     return {
@@ -99,19 +101,28 @@ function validateMFAFromIDToken(RequestBody payload) returns MFAValidationResult
 }
 
 // Extract ID token from additionalParams
-function extractIDToken(Event event) returns string? {
-    if event.request is () && event.request?.additionalParams is () {
-        map<string[]> additionalParams = <map<string[]>>event.request.additionalParams;
-        
-        // Look for id_token in additionalParams
-        if additionalParams.hasKey("id_token") {
-            string[] idTokenValues = additionalParams["id_token"];
-            if idTokenValues.length() > 0 {
-                return idTokenValues[0];
-            }
+function extractIDToken(Event event) returns string|error {
+    if event.request is () {
+        return error("Request is missing");
+    }
+    
+    Request request = <Request>event.request;
+    
+    if request.additionalParams is () {
+        return error("Additional params missing");
+    }
+    
+    map<string[]> additionalParams = <map<string[]>>request.additionalParams;
+    
+    // Look for id_token in additionalParams
+    if additionalParams.hasKey("id_token") {
+        string[]? idTokenValues = additionalParams["id_token"];
+        if idTokenValues is () && idTokenValues.length() > 0 {
+            return idTokenValues[0];
         }
     }
-    return ();
+    
+    return error("ID token not found in additional params");
 }
 
 // Validate MFA from JWT ID token
@@ -164,13 +175,25 @@ function validateMFAFromJWT(string idToken) returns MFAValidationResult {
 
 // Extract user ID
 function extractUserId(RequestBody payload) returns string {
-    if payload?.event is () {
-        Event event = <Event>payload.event;
-        
-        if event?.user?.id is string {
-            return <string>event.user.id;
-        } else if event?.accessToken?.claims is () {
-            AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
+    if payload.event is () {
+        return "unknown-user-id";
+    }
+
+    Event event = <Event>payload.event;
+    
+    // Try from user object first
+    if event.user is () {
+        User user = <User>event.user;
+        if user?.id is string {
+            return <string>user.id;
+        }
+    }
+    
+    // Try from access token claims
+    if event.accessToken is () {
+        AccessToken accessToken = <AccessToken>event.accessToken;
+        if accessToken?.claims is () {
+            AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "sub" && claim?.value is string {
                     return <string>claim.value;
@@ -178,16 +201,22 @@ function extractUserId(RequestBody payload) returns string {
             }
         }
     }
+    
     return "unknown-user-id";
 }
 
 // Extract issuer
 function extractIssuer(RequestBody payload) returns string {
-    if payload?.event is () {
-        Event event = <Event>payload.event;
-        
-        if event?.accessToken?.claims is () {
-            AccessTokenClaims[] claims = <AccessTokenClaims[]>event.accessToken.claims;
+    if payload.event is () {
+        return "https://dev.api.asgardeo.io/t/orge2ecucasesuschoreogrp4/oauth2/token";
+    }
+
+    Event event = <Event>payload.event;
+    
+    if event.accessToken is () {
+        AccessToken accessToken = <AccessToken>event.accessToken;
+        if accessToken?.claims is () {
+            AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "iss" && claim?.value is string {
                     return <string>claim.value;
@@ -195,5 +224,6 @@ function extractIssuer(RequestBody payload) returns string {
             }
         }
     }
+    
     return "https://dev.api.asgardeo.io/t/orge2ecucasesuschoreogrp4/oauth2/token";
 }
