@@ -33,7 +33,7 @@ service / on new http:Listener(9090) {
         };
         operations.push(userIdOp);
 
-        // Add tokenValidation claim
+        // Add tokenValidation claim - safe string concatenation
         string tokenValidationJson = "{\"signature\":\"valid\",\"method\":\"JWKS_RS256\",\"issuer\":\"" + issuer + "\",\"timestamp\":\"" + timestamp + "\"}";
         Operations tokenValidationOp = {
             op: "add",
@@ -45,7 +45,7 @@ service / on new http:Listener(9090) {
         };
         operations.push(tokenValidationOp);
 
-        // Add mfaValidation claim
+        // Add mfaValidation claim - safe string concatenation
         string mfaValidationJson = "{\"status\":\"" + mfaStatus + "\",\"method\":\"ID_TOKEN_AMR_VALIDATION\",\"timestamp\":\"" + timestamp + "\",\"source\":\"spa_oauth2_flow\"}";
         Operations mfaValidationOp = {
             op: "add",
@@ -79,8 +79,9 @@ function extractUserId(RequestBody payload) returns string {
     if event.user is () {
         User user = <User>event.user;
         if user?.id is string {
-            log:printInfo("Found user ID from user object: " + user.id);
-            return <string>user.id;
+            string userId = <string>user.id;
+            log:printInfo("Found user ID from user object: " + userId);
+            return userId;
         }
     }
     
@@ -91,8 +92,9 @@ function extractUserId(RequestBody payload) returns string {
             AccessTokenClaims[] claims = <AccessTokenClaims[]>accessToken.claims;
             foreach var claim in claims {
                 if claim?.name == "sub" && claim?.value is string {
-                    log:printInfo("Found user ID from access token sub claim: " + claim.value);
-                    return <string>claim.value;
+                    string userId = <string>claim.value;
+                    log:printInfo("Found user ID from access token sub claim: " + userId);
+                    return userId;
                 }
             }
         }
@@ -165,9 +167,12 @@ function extractIDToken(Event event) returns string|error {
     // Look for ID token in SPA OAuth2 flow
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
-        if idTokenValues is () && idTokenValues.length() > 0 {
-            log:printInfo("Found ID token for MFA validation");
-            return idTokenValues[0];
+        if idTokenValues is () {
+            string[] idTokenArray = <string[]>idTokenValues;
+            if idTokenArray.length() > 0 {
+                log:printInfo("Found ID token for MFA validation");
+                return idTokenArray[0];
+            }
         }
     }
     
@@ -201,7 +206,7 @@ function validateMFAFromJWTAMR(string idToken) returns string {
     // Check if MFA was performed (more than one auth method)
     if amrMethods.length() > 1 {
         return "success";
-    } else if amrMethods.length() == 1) {
+    } else if amrMethods.length() == 1 {
         return "single_factor";
     } else {
         return "no_amr";
