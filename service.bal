@@ -5,7 +5,6 @@ import ballerina/log;
 import ballerina/time;
 
 configurable boolean enabledDebugLog = false;
-// Remove the certFilePath configurable since we'll use JWKS dynamically
 auth:FileUserStoreConfig fileUserStoreConfig = {};
 
 @http:ServiceConfig {
@@ -17,7 +16,7 @@ auth:FileUserStoreConfig fileUserStoreConfig = {};
 }
 service / on new http:Listener(9092) {
 
-    resource function post .(RequestBody payload) returns SuccessResponse|ErrorResponse|http:InternalServerError {
+    resource function post actionCuCaseChoreoMFAValidation(RequestBody payload) returns SuccessResponse|ErrorResponse|http:InternalServerError {
         if enabledDebugLog {
             log:printDebug("Received payload: " + payload.toJsonString());
         }
