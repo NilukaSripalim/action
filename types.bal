@@ -1,5 +1,3 @@
-// types.bal - CORRECTED VERSION
-
 // Enums
 public enum ActionTypes {
     PRE_ISSUE_ACCESS_TOKEN
@@ -11,7 +9,7 @@ public enum ActionStatus {
     ERROR
 }
 
-// Request types - UPDATED to match WSO2 actual structure
+// Request types
 public type RequestBody record {
     string requestId?;
     ActionTypes actionType;
@@ -33,20 +31,9 @@ public type Request record {
     string grantType?;
     string clientId?;
     string[] scopes?;
-    map<string[]> additionalHeaders?;  // CHANGED: from RequestHeaders[] to map<string[]>
-    map<string[]> additionalParams?;   // CHANGED: from RequestParams[] to map<string[]>
+    map<string[]> additionalHeaders?;
+    map<string[]> additionalParams?;
 };
-
-// REMOVE these types - WSO2 doesn't use them
-// public type RequestParams record {
-//     string name?;
-//     string[] value?;
-// };
-//
-// public type RequestHeaders record {
-//     string name?;
-//     string[] value?;
-// };
 
 public type User record {
     string id?;
@@ -82,7 +69,7 @@ public type RefreshToken record {
 
 public type AccessTokenClaims record {
     string name?;
-    string|int|boolean|string[]|TokenValidationRecord|MFAValidationRecord value?;
+    string|int|boolean|string[] value?;
 };
 
 // Operation types
@@ -91,7 +78,7 @@ public type Operations record {
     string path;
     record {|
         string name;
-        string|TokenValidationRecord|MFAValidationRecord value;
+        string value;
     |} value;
 };
 
@@ -116,18 +103,4 @@ public type ErrorResponse record {|
     ActionStatus actionStatus;
     string errorMessage;
     string errorDescription;
-|};
-
-// Validation record types
-public type TokenValidationRecord record {|
-    string signature;
-    string method;
-    string issuer;
-    string timestamp;
-|};
-
-public type MFAValidationRecord record {|
-    string status;
-    string method;
-    string timestamp;
 |};
