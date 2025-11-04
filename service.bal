@@ -168,7 +168,8 @@ function extractIDToken(Event event) returns string|error {
     if additionalParams.hasKey("id_token") {
         string[]? idTokenValues = additionalParams["id_token"];
         if idTokenValues is string[] {
-            if idTokenValues.length > 0 {
+            int arrayLength = idTokenValues.length();
+            if arrayLength > 0 {
                 log:printInfo("Found ID token for MFA validation");
                 return idTokenValues[0];
             }
@@ -200,12 +201,21 @@ function validateMFAFromJWTAMR(string idToken) returns string {
         amrMethods = [amrValue];
     }
     
-    log:printInfo("AMR methods found: " + amrMethods.toString());
+    // Convert array to string for logging
+    string amrString = "";
+    foreach int i in 0 ..< amrMethods.length() {
+        if i > 0 {
+            amrString += ", ";
+        }
+        amrString += amrMethods[i];
+    }
+    log:printInfo("AMR methods found: [" + amrString + "]");
     
     // Check if MFA was performed (more than one auth method)
-    if amrMethods.length > 1 {
+    int amrLength = amrMethods.length();
+    if amrLength > 1 {
         return "success";
-    } else if amrMethods.length == 1 {
+    } else if amrLength == 1 {
         return "single_factor";
     } else {
         return "no_amr";
