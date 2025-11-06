@@ -3,7 +3,10 @@ import ballerina/log;
 import ballerina/time;
 import ballerina/jwt;
 
-service / on new http:Listener(9090) {
+@http:ServiceConfig {
+    basePath: "/"
+}
+service / on new http:Listener(9092) {
 
     resource function post actionchoreomfavalidation(@http:Payload RequestBody payload) returns SuccessResponse|ErrorResponse {
         log:printInfo("Received pre-issue access token action request");
