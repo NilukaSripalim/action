@@ -1,0 +1,318 @@
+openapi: 3.0.0
+info:
+  title: Asgardeo Action MFA Validation Service
+  description: Service for validating pre-issue access token actions with JWT signature verification
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: /
+    description: Default server
+
+paths:
+  /actionchoreomfavalidation:
+    post:
+      summary: Process pre-issue access token action
+      description: Validates and enriches access tokens with additional claims during the pre-issue phase
+      operationId: actionchoreomfavalidation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestBody'
+            examples:
+              validRequest:
+                summary: Valid pre-issue access token request
+                value:
+                  flowId: "flow-123"
+                  actionType: "PRE_ISSUE_ACCESS_TOKEN"
+                  event:
+                    id: "event-456"
+                    timestamp: "2025-11-06T09:44:21.486Z"
+                    organizationId: "org-789"
+                    organizationName: "ExampleOrg"
+                    user:
+                      id: "user-001"
+                      username: "john.doe@example.com"
+                    accessToken:
+                      claims:
+                        - name: "sub"
+                          value: "user-001"
+                        - name: "iss"
+                          value: "https://api.asgardeo.io/t/exampleorg/oauth2/token"
+                    request:
+                      grantType: "authorization_code"
+                      scopes:
+                        - "openid"
+                        - "profile"
+      responses:
+        '200':
+          description: Successfully processed the request
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - $ref: '#/components/schemas/FailedResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: Successful processing
+                  value:
+                    actionStatus: "SUCCESS"
+                    operations:
+                      - op: "add"
+                        path: "/accessToken/claims/-"
+                        value:
+                          name: "userId"
+                          value: "user-001"
+                      - op: "add"
+                        path: "/accessToken/claims/-"
+                        value:
+                          name: "tokenValidation"
+                          value: '{"status":"valid","method":"jwt_signature_verified","issuer":"https://api.asgardeo.io/t/exampleorg/oauth2/token"}'
+                failed:
+                  summary: Failed validation
+                  value:
+                    actionStatus: "FAILED"
+                    failureReason: "invalid_token"
+                    failureDescription: "JWT signature validation failed"
+                error:
+                  summary: Error response
+                  value:
+                    actionStatus: "ERROR"
+                    errorMessage: "Invalid action type"
+                    errorDescription: "Only PRE_ISSUE_ACCESS_TOKEN is supported"
+        '400':
+          description: Bad request - Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    RequestBody:
+      type: object
+      required:
+        - actionType
+      properties:
+        flowId:
+          type: string
+          description: Unique identifier for the flow
+        actionType:
+          type: string
+          description: Type of action being performed
+          enum:
+            - PRE_ISSUE_ACCESS_TOKEN
+            - POST_ISSUE_ACCESS_TOKEN
+        event:
+          $ref: '#/components/schemas/Event'
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique event identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp
+        organizationId:
+          type: string
+          description: Organization identifier
+        organizationName:
+          type: string
+          description: Organization name
+        user:
+          $ref: '#/components/schemas/User'
+        organization:
+          $ref: '#/components/schemas/Organization'
+        tenant:
+          $ref: '#/components/schemas/Tenant'
+        request:
+          $ref: '#/components/schemas/Request'
+        accessToken:
+          $ref: '#/components/schemas/AccessToken'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: User identifier
+        username:
+          type: string
+          description: Username
+        claims:
+          type: object
+          additionalProperties: true
+          description: Additional user claims
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Organization identifier
+        name:
+          type: string
+          description: Organization name
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Tenant identifier
+        name:
+          type: string
+          description: Tenant name
+        domain:
+          type: string
+          description: Tenant domain
+
+    Request:
+      type: object
+      properties:
+        grantType:
+          type: string
+          description: OAuth2 grant type
+          example: "authorization_code"
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Requested scopes
+        additionalParams:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Additional request parameters
+
+    AccessToken:
+      type: object
+      properties:
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessTokenClaim'
+        scopes:
+          type: array
+          items:
+            type: string
+
+    AccessTokenClaim:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Claim name
+        value:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: boolean
+            - type: array
+              items:
+                type: string
+          description: Claim value
+
+    SuccessResponse:
+      type: object
+      required:
+        - actionStatus
+        - operations
+      properties:
+        actionStatus:
+          type: string
+          enum:
+            - SUCCESS
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Operation'
+
+    FailedResponse:
+      type: object
+      required:
+        - actionStatus
+        - failureReason
+        - failureDescription
+      properties:
+        actionStatus:
+          type: string
+          enum:
+            - FAILED
+        failureReason:
+          type: string
+          description: Reason for failure
+        failureDescription:
+          type: string
+          description: Detailed failure description
+
+    ErrorResponse:
+      type: object
+      required:
+        - actionStatus
+        - errorMessage
+      properties:
+        actionStatus:
+          type: string
+          enum:
+            - ERROR
+        errorMessage:
+          type: string
+          description: Error message
+        errorDescription:
+          type: string
+          description: Detailed error description
+
+    Operation:
+      type: object
+      required:
+        - op
+        - path
+        - value
+      properties:
+        op:
+          type: string
+          enum:
+            - add
+            - remove
+            - replace
+          description: Operation type (JSON Patch)
+        path:
+          type: string
+          description: JSON Pointer path
+          example: "/accessToken/claims/-"
+        value:
+          $ref: '#/components/schemas/OperationValue'
+
+    OperationValue:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          description: Claim name to add
+        value:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: boolean
+          description: Claim value
