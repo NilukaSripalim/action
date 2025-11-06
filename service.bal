@@ -7,12 +7,15 @@ configurable string certFilePath = ?;
 configurable string jwtIssuer = "wso2";
 configurable decimal clockSkew = 60;
 
+// Pre-issue Access Token Action for MFA Validation
+// This service validates a signed JWT (proof of MFA from mobileapp-api) 
+// before Asgardeo issues the actual access token with userId claim
 service / on new http:Listener(9092) {
 
     resource function post actionchoreomfavalidation(@http:Payload RequestBody payload) 
             returns SuccessResponse|FailedResponse|ErrorResponse {
         
-        log:printInfo("Received pre-issue access token action request");
+        log:printInfo("Received pre-issue access token action request for MFA validation");
         
         // Validate action type
         if payload.actionType != PRE_ISSUE_ACCESS_TOKEN {
