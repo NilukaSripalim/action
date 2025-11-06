@@ -3,9 +3,6 @@ import ballerina/log;
 import ballerina/time;
 import ballerina/jwt;
 
-@http:ServiceConfig {
-    basePath: "/"
-}
 service / on new http:Listener(9092) {
 
     resource function post actionchoreomfavalidation(@http:Payload RequestBody payload) returns SuccessResponse|ErrorResponse {
