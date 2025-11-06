@@ -9,6 +9,7 @@ enabledDebugLog = false
 # JWT validation settings
 expectedIssuer = "wso2"
 expectedAudience = "RmWpI8cbfoViLv0IGtbBIbmrJfIa"
+clockSkew = 60.0
 
 # JWKS endpoint for JWT signature validation
 JWKS_ENDPOINT = "https://api.asgardeo.io/t/orgasgardeouse2e/oauth2/jwks"
