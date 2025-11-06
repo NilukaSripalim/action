@@ -13,12 +13,11 @@ service / on new http:Listener(9092) {
         
         if issuer == "" {
             log:printError("Failed to extract issuer from payload");
-            ErrorResponse errorResp = {
+            return {
                 actionStatus: "FAILED",
-                failureReason: "invalid_request",
-                failureDescription: "Missing issuer claim in access token"
+                errorMessage: "invalid_request",
+                errorDescription: "Missing issuer claim in access token"
             };
-            return errorResp;
         }
         
         // Generate JWKS endpoint for reference (will be used when token is actually validated)
