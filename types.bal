@@ -98,7 +98,6 @@ public type AllowedOperation record {
 };
 
 // Response types
-
 // SUCCESS response - returns operations array
 public type SuccessResponse record {|
     ActionStatus actionStatus;
