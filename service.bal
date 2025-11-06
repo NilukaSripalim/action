@@ -5,7 +5,7 @@ import ballerina/jwt;
 
 configurable string certFilePath = ?;
 configurable string jwtIssuer = "wso2";
-configurable int clockSkew = 60;
+configurable decimal clockSkew = 60;
 
 service / on new http:Listener(9092) {
 
