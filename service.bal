@@ -1,7 +1,6 @@
 import ballerina/http;
 import ballerina/log;
 import ballerina/time;
-import ballerina/jwt;
 
 service / on new http:Listener(9092) {
 
